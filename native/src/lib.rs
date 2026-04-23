@@ -5,6 +5,7 @@ pub mod lexer;
 pub mod token;
 pub mod parser;
 pub mod completion;
+pub mod diagnostics;
 
 use lexer::{JsonishLexer, MaterialLexer};
 use token::Token;
@@ -30,6 +31,7 @@ pub fn hello() -> String {
 mod tests {
     use crate::lexer::{JsonishLexer, MaterialLexer};
     use crate::parser::Parser;
+    use crate::diagnostics::Validator;
 
     #[test]
     fn test_material_lexer_basic() {

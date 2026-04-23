@@ -1,7 +1,7 @@
 [package]
 name = "filament-mat-core"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 authors = ["filament-mat-lsp contributors"]
 license = "MIT"
 description = "Rust core for Filament Material LSP"
