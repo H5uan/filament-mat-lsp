@@ -1,28 +1,84 @@
 # Filament Material LSP
 
-Language Server Protocol support for Google Filament material files (.mat).
+VS Code Language Server Protocol support for Google Filament material files (.mat).
 
 ## Features
 
-- ✅ Syntax highlighting for .mat files
-- 🚧 LSP features coming soon
+- ✅ **Syntax Highlighting** for Filament material files
+- ✅ **Code Completion** for:
+  - Material properties
+  - Shading model values
+  - Blending mode values
+  - Parameter types
+  - Required vertex attributes
+- ✅ **Basic Validation** for required properties (name and shadingModel)
 
-## File Structure
+## Getting Started
+
+1. **Build the project**
+   ```bash
+   npm install
+   npm run compile
+   ```
+
+2. **Test in VS Code**
+   - Open this repository in VS Code
+   - Press `F5` to launch the Extension Development Host
+   - Create a new file with `.mat` extension
+   - Start writing Filament material files!
+
+3. **Test Rust core** (optional)
+   ```bash
+   cd native
+   cargo test
+   ```
+
+## Project Structure
 
 ```
 filament-mat-lsp/
-├── client/          # VSCode extension client
-├── server/          # LSP server
-├── syntaxes/        # TextMate grammar
-└── test/            # Test files
+├── .github/workflows/  # GitHub Actions CI
+├── client/             # VS Code Language Client
+├── server/             # TypeScript LSP Server
+├── native/             # Rust core library
+│   ├── src/
+│   │   ├── lib.rs         # Node.js bindings
+│   │   ├── token.rs       # Token types
+│   │   ├── lexer.rs       # Lexer
+│   │   ├── parser.rs      # Parser
+│   │   ├── completion.rs  # Completion engine
+│   │   └── diagnostics.rs # Diagnostics engine
+├── syntaxes/           # TextMate grammar
+├── language-configuration.json
+└── package.json
 ```
 
-## Development
+## Filament Material Example
 
-1. Run `npm install`
-2. Press F5 to launch the extension development host
-3. Open a .mat file to test
+```mat
+material {
+    name: MyMaterial,
+    shadingModel: lit,
+    requires: [position, normal, uv0],
 
-## Test Files
+    parameters: [
+        { type: float4, name: baseColor },
+        { type: sampler2d, name: baseColorMap },
+    ],
 
-The `test/` directory contains sample .mat files from Filament.
+    blending: opaque,
+    culling: back,
+}
+
+vertex {
+    // Vertex shader
+}
+
+fragment {
+    // Fragment shader
+}
+```
+
+## License
+
+MIT

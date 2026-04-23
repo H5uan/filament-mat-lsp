@@ -1,0 +1,36 @@
+// Example Filament Material File
+
+material {
+    name: ExampleMaterial,
+    shadingModel: lit,
+    requires: [position, normal, uv0],
+
+    parameters: [
+        { type: float4, name: baseColor },
+        { type: float, name: roughness },
+        { type: float, name: metallic },
+        { type: sampler2d, name: baseColorMap },
+        { type: sampler2d, name: roughnessMap },
+        { type: sampler2d, name: normalMap },
+    ],
+
+    blending: opaque,
+    culling: back,
+    doubleSided: false,
+    colorWrite: true,
+    depthWrite: true,
+}
+
+vertex {
+    // Vertex shader code here
+    void materialVertex(inout MaterialVertexInputs material) {
+
+    }
+}
+
+fragment {
+    // Fragment shader code here
+    void material(inout MaterialInputs material) {
+
+    }
+}
