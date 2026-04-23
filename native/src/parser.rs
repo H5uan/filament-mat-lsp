@@ -42,10 +42,9 @@ impl Parser {
 
   pub fn parse_material(&mut self) -> Option<Material> {
     self.skip_to(&TokenType::LCurly);
-    if let Some(token) = self.tokens.peek() {
-      if token.is_type(&TokenType::LCurly) {
-        self.tokens.next();
-      }
+    if let Some(token) = self.tokens.peek()
+      && token.is_type(&TokenType::LCurly) {
+      self.tokens.next();
     }
 
     let mut material = Material {
@@ -66,19 +65,15 @@ impl Parser {
         "Name" => {
           self.tokens.next();
           self.expect(&TokenType::Colon);
-          if let Some(value) = self.parse_value() {
-            if let Value::Identifier(s) | Value::String(s) = value {
-              material.name = Some(s);
-            }
+          if let Some(Value::Identifier(s) | Value::String(s)) = self.parse_value() {
+            material.name = Some(s);
           }
         }
         "ShadingModel" => {
           self.tokens.next();
           self.expect(&TokenType::Colon);
-          if let Some(value) = self.parse_value() {
-            if let Value::Identifier(s) = value {
-              material.shading_model = Some(s);
-            }
+          if let Some(Value::Identifier(s)) = self.parse_value() {
+            material.shading_model = Some(s);
           }
         }
         "Requires" => {
@@ -97,10 +92,9 @@ impl Parser {
           self.expect(&TokenType::Colon);
           if let Some(Value::Array(arr)) = self.parse_value() {
             for item in arr {
-              if let Value::Object(props) = item {
-                if let Some(param) = Self::parse_parameter(props) {
-                  material.parameters.push(param);
-                }
+              if let Value::Object(props) = item
+                && let Some(param) = Self::parse_parameter(props) {
+                material.parameters.push(param);
               }
             }
           }
@@ -192,10 +186,9 @@ impl Parser {
           if let Some(val) = self.parse_value() {
             arr.push(val);
           }
-          if let Some(t) = self.tokens.peek() {
-            if t.is_type(&TokenType::Comma) {
-              self.tokens.next();
-            }
+          if let Some(t) = self.tokens.peek()
+            && t.is_type(&TokenType::Comma) {
+            self.tokens.next();
           }
         }
         Some(Value::Array(arr))
@@ -214,10 +207,9 @@ impl Parser {
               obj.push((key, value));
             }
           }
-          if let Some(t) = self.tokens.peek() {
-            if t.is_type(&TokenType::Comma) {
-              self.tokens.next();
-            }
+          if let Some(t) = self.tokens.peek()
+            && t.is_type(&TokenType::Comma) {
+            self.tokens.next();
           }
         }
         Some(Value::Object(obj))
@@ -250,10 +242,9 @@ impl Parser {
   }
 
   fn expect(&mut self, expected: &TokenType) {
-    if let Some(token) = self.tokens.peek() {
-      if token.is_type(expected) {
-        self.tokens.next();
-      }
+    if let Some(token) = self.tokens.peek()
+      && token.is_type(expected) {
+      self.tokens.next();
     }
   }
 }
