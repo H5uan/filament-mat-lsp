@@ -1,0 +1,72 @@
+/*
+ * Test Filament Material File
+ * This file tests various features of the .mat format
+ */
+
+material {
+    name : TestMaterial,
+    requires : [
+        position,
+        normal,
+        uv0
+    ],
+    shadingModel : lit,
+    culling : back,
+    blending : opaque,
+    vertexDomain : object,
+    materialDomain : surface,
+    doubleSided : false,
+    colorWrite : true,
+    depthWrite : true,
+    depthTest : true,
+    specularAntiAliasing : true,
+    specularAntiAliasingVariance : 0.15,
+    specularAntiAliasingThreshold : 0.2,
+    
+    parameters : [
+        {
+            type : float3,
+            name : baseColor
+        },
+        {
+            type : float,
+            name : roughness
+        },
+        {
+            type : float,
+            name : metallic
+        },
+        {
+            type : sampler2d,
+            name : albedoMap
+        },
+        {
+            type : sampler2d,
+            name : normalMap
+        }
+    ]
+}
+
+vertex {
+    void materialVertex(inout MaterialVertexInputs material) {
+        // Vertex shader code
+    }
+}
+
+fragment {
+    void material(inout MaterialInputs material) {
+        prepareMaterial(material);
+        
+        material.baseColor = materialParams.baseColor;
+        material.roughness = materialParams.roughness;
+        material.metallic = materialParams.metallic;
+        
+        #if defined(HAS_albedoMap)
+            material.baseColor *= texture(materialParams_albedoMap, getUV0());
+        #endif
+        
+        #if defined(HAS_normalMap)
+            material.normal = texture(materialParams_normalMap, getUV0()).xyz * 2.0 - 1.0;
+        #endif
+    }
+}

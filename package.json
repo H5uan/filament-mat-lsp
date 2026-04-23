@@ -1,0 +1,50 @@
+{
+    "name": "filament-mat-lsp",
+    "displayName": "Filament Material LSP",
+    "description": "Language Server Protocol support for Filament material files",
+    "version": "0.0.1",
+    "engines": {
+        "vscode": "^1.75.0"
+    },
+    "categories": [
+        "Programming Languages",
+        "Linters"
+    ],
+    "activationEvents": [
+        "onLanguage:filament-mat"
+    ],
+    "main": "./client/out/extension",
+    "contributes": {
+        "languages": [
+            {
+                "id": "filament-mat",
+                "aliases": [
+                    "Filament Material",
+                    "filament-mat"
+                ],
+                "extensions": [
+                    ".mat"
+                ],
+                "configuration": "./language-configuration.json"
+            }
+        ],
+        "grammars": [
+            {
+                "language": "filament-mat",
+                "scopeName": "source.filament-mat",
+                "path": "./syntaxes/filament-mat.tmLanguage.json"
+            }
+        ]
+    },
+    "scripts": {
+        "vscode:prepublish": "npm run compile",
+        "compile": "tsc -b",
+        "watch": "tsc -b -w",
+        "lint": "eslint ./client/src ./server/src --ext .ts,.tsx",
+        "postinstall": "cd client && npm install && cd ../server && npm install"
+    },
+    "devDependencies": {
+        "@types/node": "^18",
+        "typescript": "^5.0.0"
+    }
+}

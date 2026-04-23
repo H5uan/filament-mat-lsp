@@ -1,0 +1,19 @@
+{
+    "name": "filament-mat-client",
+    "description": "VSCode client for Filament Material LSP",
+    "version": "0.0.1",
+    "engines": {
+        "vscode": "^1.75.0"
+    },
+    "scripts": {
+        "compile": "tsc -b",
+        "watch": "tsc -b -w"
+    },
+    "dependencies": {
+        "vscode-languageclient": "^9.0.0"
+    },
+    "devDependencies": {
+        "@types/vscode": "^1.75.0",
+        "typescript": "^5.0.0"
+    }
+}

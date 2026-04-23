@@ -1,0 +1,249 @@
+{
+    "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+    "name": "Filament Material",
+    "scopeName": "source.filament-mat",
+    "fileTypes": ["mat"],
+    "patterns": [
+        {
+            "include": "#comments"
+        },
+        {
+            "include": "#blocks"
+        }
+    ],
+    "repository": {
+        "comments": {
+            "patterns": [
+                {
+                    "match": "//.*$",
+                    "name": "comment.line.double-slash.filament-mat"
+                },
+                {
+                    "begin": "/\\*",
+                    "end": "\\*/",
+                    "name": "comment.block.filament-mat"
+                }
+            ]
+        },
+        "blocks": {
+            "patterns": [
+                {
+                    "name": "meta.block.material.filament-mat",
+                    "begin": "\\b(material)\\b\\s*({)",
+                    "beginCaptures": {
+                        "1": { "name": "keyword.other.material.filament-mat" },
+                        "2": { "name": "punctuation.section.block.begin.filament-mat" }
+                    },
+                    "end": "}",
+                    "endCaptures": {
+                        "0": { "name": "punctuation.section.block.end.filament-mat" }
+                    },
+                    "patterns": [
+                        { "include": "#comments" },
+                        { "include": "#jsonish" }
+                    ]
+                },
+                {
+                    "name": "meta.block.vertex.filament-mat",
+                    "begin": "\\b(vertex)\\b\\s*({)",
+                    "beginCaptures": {
+                        "1": { "name": "keyword.other.vertex.filament-mat" },
+                        "2": { "name": "punctuation.section.block.begin.filament-mat" }
+                    },
+                    "end": "}",
+                    "endCaptures": {
+                        "0": { "name": "punctuation.section.block.end.filament-mat" }
+                    },
+                    "patterns": [
+                        { "include": "source.glsl" }
+                    ]
+                },
+                {
+                    "name": "meta.block.fragment.filament-mat",
+                    "begin": "\\b(fragment)\\b\\s*({)",
+                    "beginCaptures": {
+                        "1": { "name": "keyword.other.fragment.filament-mat" },
+                        "2": { "name": "punctuation.section.block.begin.filament-mat" }
+                    },
+                    "end": "}",
+                    "endCaptures": {
+                        "0": { "name": "punctuation.section.block.end.filament-mat" }
+                    },
+                    "patterns": [
+                        { "include": "source.glsl" }
+                    ]
+                },
+                {
+                    "name": "meta.block.compute.filament-mat",
+                    "begin": "\\b(compute)\\b\\s*({)",
+                    "beginCaptures": {
+                        "1": { "name": "keyword.other.compute.filament-mat" },
+                        "2": { "name": "punctuation.section.block.begin.filament-mat" }
+                    },
+                    "end": "}",
+                    "endCaptures": {
+                        "0": { "name": "punctuation.section.block.end.filament-mat" }
+                    },
+                    "patterns": [
+                        { "include": "source.glsl" }
+                    ]
+                }
+            ]
+        },
+        "jsonish": {
+            "patterns": [
+                {
+                    "include": "#comments"
+                },
+                {
+                    "include": "#strings"
+                },
+                {
+                    "include": "#numbers"
+                },
+                {
+                    "include": "#constants"
+                },
+                {
+                    "include": "#properties"
+                },
+                {
+                    "include": "#enums"
+                },
+                {
+                    "include": "#types"
+                },
+                {
+                    "include": "#punctuation"
+                }
+            ]
+        },
+        "strings": {
+            "name": "string.quoted.double.filament-mat",
+            "begin": "\"",
+            "end": "\"",
+            "patterns": [
+                {
+                    "name": "constant.character.escape.filament-mat",
+                    "match": "\\\\."
+                }
+            ]
+        },
+        "numbers": {
+            "patterns": [
+                {
+                    "match": "\\b-?\\d+(\\.\\d*)?([eE][+-]?\\d+)?\\b",
+                    "name": "constant.numeric.filament-mat"
+                }
+            ]
+        },
+        "constants": {
+            "patterns": [
+                {
+                    "match": "\\b(true|false|null)\\b",
+                    "name": "constant.language.filament-mat"
+                }
+            ]
+        },
+        "properties": {
+            "patterns": [
+                {
+                    "match": "\\b(name|shadingModel|requires|culling|blending|maskThreshold|alphaToCoverage|vertexDomain|materialDomain|interpolation|doubleSided|colorWrite|depthWrite|depthTest|instanced|refractionMode|refractionType|reflectionMode|transparencyMode|shadowMultiplier|specularAntiAliasing|specularAntiAliasingVariance|specularAntiAliasingThreshold|clearCoatIorChange|flipUV|linearFog|multiBounceAmbientOcclusion|specularAmbientOcclusion|customSurfaceShading|stereoscopicType|stereoscopicEyeCount|groupSize|variantFilter|parameters|constants|variables|type|name|precision|format|filterable|multisample|transformName|stages|default)\\b(?=\\s*:)",
+                    "name": "support.type.property-name.filament-mat"
+                }
+            ]
+        },
+        "enums": {
+            "patterns": [
+                {
+                    "match": "\\b(lit|unlit|subsurface|cloth|specularGlossiness)\\b",
+                    "name": "support.constant.shading-model.filament-mat"
+                },
+                {
+                    "match": "\\b(front|back|none)\\b",
+                    "name": "support.constant.culling.filament-mat"
+                },
+                {
+                    "match": "\\b(opaque|transparent|fade|masked|add|custom)\\b",
+                    "name": "support.constant.blending.filament-mat"
+                },
+                {
+                    "match": "\\b(object|world|view|device)\\b",
+                    "name": "support.constant.vertex-domain.filament-mat"
+                },
+                {
+                    "match": "\\b(surface|postProcess|compute)\\b",
+                    "name": "support.constant.material-domain.filament-mat"
+                },
+                {
+                    "match": "\\b(smooth|flat)\\b",
+                    "name": "support.constant.interpolation.filament-mat"
+                },
+                {
+                    "match": "\\b(none|screenSpace|cubemap)\\b",
+                    "name": "support.constant.refraction-mode.filament-mat"
+                },
+                {
+                    "match": "\\b(solid|thin)\\b",
+                    "name": "support.constant.refraction-type.filament-mat"
+                },
+                {
+                    "match": "\\b(default|twoPassesOneSide|twoPassesTwoSides)\\b",
+                    "name": "support.constant.transparency-mode.filament-mat"
+                },
+                {
+                    "match": "\\b(instanced|multiView)\\b",
+                    "name": "support.constant.stereoscopic-type.filament-mat"
+                },
+                {
+                    "match": "\\b(position|normal|uv0|uv1|color|tangents|custom0|custom1|custom2|custom3|custom4|boneIndices|boneWeights)\\b",
+                    "name": "support.constant.vertex-attribute.filament-mat"
+                },
+                {
+                    "match": "\\b(low|medium|high|default)\\b",
+                    "name": "support.constant.precision.filament-mat"
+                },
+                {
+                    "match": "\\b(float|int|uint|shadow)\\b",
+                    "name": "support.constant.format.filament-mat"
+                }
+            ]
+        },
+        "types": {
+            "patterns": [
+                {
+                    "match": "\\b(bool|bool2|bool3|bool4|int|int2|int3|int4|uint|uint2|uint3|uint4|float|float2|float3|float4|mat3|mat4|sampler2d|sampler3d|samplerCubemap|samplerExternal)\\b",
+                    "name": "support.type.filament-mat"
+                }
+            ]
+        },
+        "punctuation": {
+            "patterns": [
+                {
+                    "match": "\\{",
+                    "name": "punctuation.section.block.begin.filament-mat"
+                },
+                {
+                    "match": "\\}",
+                    "name": "punctuation.section.block.end.filament-mat"
+                },
+                {
+                    "match": "\\[",
+                    "name": "punctuation.section.array.begin.filament-mat"
+                },
+                {
+                    "match": "\\]",
+                    "name": "punctuation.section.array.end.filament-mat"
+                },
+                {
+                    "match": ",",
+                    "name": "punctuation.separator.comma.filament-mat"
+                },
+                {
+                    "match": ":",
+                    "name": "punctuation.separator.key-value.filament-mat"
+                }
+            ]
+        }
+    }
+}

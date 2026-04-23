@@ -1,0 +1,58 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "npm: compile",
+            "dependsOn": [
+                "npm: compile client",
+                "npm: compile server"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": "$tsc"
+        },
+        {
+            "label": "npm: compile client",
+            "type": "npm",
+            "script": "compile",
+            "path": "client",
+            "group": "build",
+            "problemMatcher": "$tsc"
+        },
+        {
+            "label": "npm: compile server",
+            "type": "npm",
+            "script": "compile",
+            "path": "server",
+            "group": "build",
+            "problemMatcher": "$tsc"
+        },
+        {
+            "label": "npm: watch",
+            "dependsOn": [
+                "npm: watch client",
+                "npm: watch server"
+            ],
+            "problemMatcher": "$tsc-watch",
+            "isBackground": true
+        },
+        {
+            "label": "npm: watch client",
+            "type": "npm",
+            "script": "watch",
+            "path": "client",
+            "problemMatcher": "$tsc-watch",
+            "isBackground": true
+        },
+        {
+            "label": "npm: watch server",
+            "type": "npm",
+            "script": "watch",
+            "path": "server",
+            "problemMatcher": "$tsc-watch",
+            "isBackground": true
+        }
+    ]
+}
