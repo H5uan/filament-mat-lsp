@@ -1,187 +1,348 @@
-use crate::token::Token;
+use crate::token::{Token, TokenType};
+use std::iter::Peekable;
+use std::str::Chars;
 
-pub fn tokenize(input: &str) -> Vec<Token> {
-    let mut tokens = Vec::new();
-    let mut chars = input.chars().peekable();
-    let mut line = 1;
-    let mut column = 1;
+pub struct MaterialLexer<'a> {
+    input: &'a str,
+    chars: Peekable<Chars<'a>>,
+    line: u32,
+    column: u32,
+}
 
-    while let Some(&c) = chars.peek() {
-        match c {
-            // Whitespace
-            ' ' | '\t' => {
-                chars.next();
-                column += 1;
-            }
-            '\n' => {
-                chars.next();
-                line += 1;
-                column = 1;
-            }
-            '\r' => {
-                chars.next();
-                if let Some('\n') = chars.peek() {
-                    chars.next();
+impl<'a> MaterialLexer<'a> {
+    pub fn new(input: &'a str) -> Self {
+        Self {
+            input,
+            chars: input.chars().peekable(),
+            line: 1,
+            column: 1,
+        }
+    }
+
+    pub fn tokenize(&mut self) -> Vec<Token> {
+        let mut tokens = Vec::new();
+        while let Some(&ch) = self.chars.peek() {
+            match ch {
+                ' ' | '\t' => {
+                    self.chars.next();
+                    self.column += 1;
                 }
-                line += 1;
-                column = 1;
+                '\n' => {
+                    self.chars.next();
+                    self.line += 1;
+                    self.column = 1;
+                }
+                '\r' => {
+                    self.chars.next();
+                    if let Some('\n') = self.chars.peek() {
+                        self.chars.next();
+                    }
+                    self.line += 1;
+                    self.column = 1;
+                }
+                '/' => {
+                    self.skip_comment();
+                }
+                'a'..='z' | 'A'..='Z' | '_' => {
+                    if let Some(token) = self.read_keyword() {
+                        tokens.push(token);
+                    }
+                }
+                '{' => {
+                    let token = Token::new(TokenType::LCurly, "{", self.line, self.column);
+                    self.chars.next();
+                    self.column += 1;
+                    tokens.push(token);
+                }
+                '}' => {
+                    let token = Token::new(TokenType::RCurly, "}", self.line, self.column);
+                    self.chars.next();
+                    self.column += 1;
+                    tokens.push(token);
+                }
+                _ => {
+                    self.chars.next();
+                    self.column += 1;
+                }
             }
-            // Comments
-            '/' => {
-                chars.next();
-                column += 1;
-                if let Some('/') = chars.peek() {
-                    let start_col = column;
-                    chars.next();
-                    column += 1;
-                    let mut comment = String::new();
-                    while let Some(&c) = chars.peek() {
-                        if c == '\n' {
-                            break;
-                        }
-                        comment.push(c);
-                        chars.next();
-                        column += 1;
+        }
+        tokens
+    }
+
+    fn skip_comment(&mut self) {
+        self.chars.next();
+        self.column += 1;
+        if let Some(&'/') = self.chars.peek() {
+            self.chars.next();
+            self.column += 1;
+            while let Some(&ch) = self.chars.peek() {
+                if ch == '\n' {
+                    break;
+                }
+                self.chars.next();
+                self.column += 1;
+            }
+        } else if let Some(&'*') = self.chars.peek() {
+            self.chars.next();
+            self.column += 1;
+            while let Some(&ch) = self.chars.peek() {
+                if ch == '*' {
+                    self.chars.next();
+                    self.column += 1;
+                    if let Some(&'/') = self.chars.peek() {
+                        self.chars.next();
+                        self.column += 1;
+                        break;
                     }
-                    tokens.push(Token::new("Comment", &comment, line, start_col));
-                } else if let Some('*') = chars.peek() {
-                    let start_col = column;
-                    chars.next();
-                    column += 1;
-                    let mut comment = String::new();
-                    while let Some(&c) = chars.peek() {
-                        if c == '*' {
-                            comment.push(c);
-                            chars.next();
-                            column += 1;
-                            if let Some('/') = chars.peek() {
-                                chars.next();
-                                column += 1;
-                                break;
-                            }
-                        } else {
-                            if c == '\n' {
-                                line += 1;
-                                column = 1;
-                            } else {
-                                column += 1;
-                            }
-                            comment.push(c);
-                            chars.next();
-                        }
-                    }
-                    tokens.push(Token::new("Comment", &comment, line, start_col));
+                } else if ch == '\n' {
+                    self.chars.next();
+                    self.line += 1;
+                    self.column = 1;
                 } else {
-                    tokens.push(Token::new("Punctuation", "/", line, column));
-                    column += 1;
+                    self.chars.next();
+                    self.column += 1;
                 }
-            }
-            // Strings
-            '"' => {
-                let start_col = column;
-                chars.next();
-                column += 1;
-                let mut s = String::new();
-                while let Some(&c) = chars.peek() {
-                    if c == '"' {
-                        chars.next();
-                        column += 1;
-                        break;
-                    } else if c == '\\' {
-                        chars.next();
-                        column += 1;
-                        if let Some(&escaped) = chars.peek() {
-                            s.push(match escaped {
-                                'n' => '\n',
-                                't' => '\t',
-                                'r' => '\r',
-                                '\\' => '\\',
-                                '"' => '"',
-                                _ => escaped,
-                            });
-                            chars.next();
-                            column += 1;
-                        }
-                    } else {
-                        if c == '\n' {
-                            line += 1;
-                            column = 1;
-                        } else {
-                            column += 1;
-                        }
-                        s.push(c);
-                        chars.next();
-                    }
-                }
-                tokens.push(Token::new("String", &s, line, start_col));
-            }
-            // Numbers
-            '0'..='9' | '-' => {
-                let start_col = column;
-                let mut num = String::new();
-                if c == '-' {
-                    num.push(c);
-                    chars.next();
-                    column += 1;
-                }
-                while let Some(&c) = chars.peek() {
-                    if c.is_ascii_digit() || c == '.' {
-                        num.push(c);
-                        chars.next();
-                        column += 1;
-                    } else {
-                        break;
-                    }
-                }
-                tokens.push(Token::new("Number", &num, line, start_col));
-            }
-            // Identifiers & keywords
-            'a'..='z' | 'A'..='Z' | '_' => {
-                let start_col = column;
-                let mut ident = String::new();
-                while let Some(&c) = chars.peek() {
-                    if c.is_ascii_alphanumeric() || c == '_' {
-                        ident.push(c);
-                        chars.next();
-                        column += 1;
-                    } else {
-                        break;
-                    }
-                }
-                let token_type = match ident.as_str() {
-                    "material" | "vertex" | "fragment" | "compute" => "Keyword",
-                    "true" | "false" => "Boolean",
-                    "null" => "Null",
-                    _ => "Identifier",
-                };
-                tokens.push(Token::new(token_type, &ident, line, start_col));
-            }
-            // Punctuation
-            '{' | '}' | '[' | ']' | ':' | ',' => {
-                tokens.push(Token::new("Punctuation", &c.to_string(), line, column));
-                chars.next();
-                column += 1;
-            }
-            // Unknown
-            _ => {
-                tokens.push(Token::new("Unknown", &c.to_string(), line, column));
-                chars.next();
-                column += 1;
             }
         }
     }
 
-    tokens
+    fn read_keyword(&mut self) -> Option<Token> {
+        let start_column = self.column;
+        let mut ident = String::new();
+        while let Some(&ch) = self.chars.peek() {
+            if ch.is_ascii_alphanumeric() || ch == '_' {
+                ident.push(ch);
+                self.chars.next();
+                self.column += 1;
+            } else {
+                break;
+            }
+        }
+        match ident.as_str() {
+            "material" => Some(Token::new(TokenType::Material, "material", self.line, start_column)),
+            "vertex" => Some(Token::new(TokenType::Vertex, "vertex", self.line, start_column)),
+            "fragment" => Some(Token::new(TokenType::Fragment, "fragment", self.line, start_column)),
+            "compute" => Some(Token::new(TokenType::Compute, "compute", self.line, start_column)),
+            _ => None,
+        }
+    }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+pub struct JsonishLexer<'a> {
+    input: &'a str,
+    chars: Peekable<Chars<'a>>,
+    line: u32,
+    column: u32,
+}
 
-    #[test]
-    fn test_simple_tokenization() {
-        let input = r#"material { name: "Test" }"#;
-        let tokens = tokenize(input);
-        assert_eq!(tokens.len(), 7);
+impl<'a> JsonishLexer<'a> {
+    pub fn new(input: &'a str) -> Self {
+        Self {
+            input,
+            chars: input.chars().peekable(),
+            line: 1,
+            column: 1,
+        }
+    }
+
+    pub fn tokenize(&mut self) -> Vec<Token> {
+        let mut tokens = Vec::new();
+        while let Some(&ch) = self.chars.peek() {
+            match ch {
+                ' ' | '\t' => {
+                    self.chars.next();
+                    self.column += 1;
+                }
+                '\n' => {
+                    self.chars.next();
+                    self.line += 1;
+                    self.column = 1;
+                }
+                '\r' => {
+                    self.chars.next();
+                    if let Some('\n') = self.chars.peek() {
+                        self.chars.next();
+                    }
+                    self.line += 1;
+                    self.column = 1;
+                }
+                '/' => {
+                    tokens.push(self.read_comment());
+                }
+                '"' => {
+                    tokens.push(self.read_string());
+                }
+                '0'..='9' | '-' | '.' => {
+                    tokens.push(self.read_number());
+                }
+                'a'..='z' | 'A'..='Z' | '_' => {
+                    tokens.push(self.read_identifier());
+                }
+                '{' => {
+                    let token = Token::new(TokenType::LCurly, "{", self.line, self.column);
+                    self.chars.next();
+                    self.column += 1;
+                    tokens.push(token);
+                }
+                '}' => {
+                    let token = Token::new(TokenType::RCurly, "}", self.line, self.column);
+                    self.chars.next();
+                    self.column += 1;
+                    tokens.push(token);
+                }
+                '[' => {
+                    let token = Token::new(TokenType::LBracket, "[", self.line, self.column);
+                    self.chars.next();
+                    self.column += 1;
+                    tokens.push(token);
+                }
+                ']' => {
+                    let token = Token::new(TokenType::RBracket, "]", self.line, self.column);
+                    self.chars.next();
+                    self.column += 1;
+                    tokens.push(token);
+                }
+                ':' => {
+                    let token = Token::new(TokenType::Colon, ":", self.line, self.column);
+                    self.chars.next();
+                    self.column += 1;
+                    tokens.push(token);
+                }
+                ',' => {
+                    let token = Token::new(TokenType::Comma, ",", self.line, self.column);
+                    self.chars.next();
+                    self.column += 1;
+                    tokens.push(token);
+                }
+                _ => {
+                    let token = Token::new(TokenType::Unknown, &ch.to_string(), self.line, self.column);
+                    self.chars.next();
+                    self.column += 1;
+                    tokens.push(token);
+                }
+            }
+        }
+        tokens
+    }
+
+    fn read_comment(&mut self) -> Token {
+        let start_column = self.column;
+        self.chars.next();
+        self.column += 1;
+        if let Some(&'/') = self.chars.peek() {
+            let mut comment = String::from("//");
+            self.chars.next();
+            self.column += 1;
+            while let Some(&ch) = self.chars.peek() {
+                if ch == '\n' {
+                    break;
+                }
+                comment.push(ch);
+                self.chars.next();
+                self.column += 1;
+            }
+            Token::new(TokenType::Comment, &comment, self.line, start_column)
+        } else if let Some(&'*') = self.chars.peek() {
+            let mut comment = String::from("/*");
+            self.chars.next();
+            self.column += 1;
+            while let Some(&ch) = self.chars.peek() {
+                comment.push(ch);
+                self.chars.next();
+                if ch == '\n' {
+                    self.line += 1;
+                    self.column = 1;
+                } else {
+                    self.column += 1;
+                }
+                if ch == '*' && self.chars.peek() == Some(&'/') {
+                    comment.push('/');
+                    self.chars.next();
+                    self.column += 1;
+                    break;
+                }
+            }
+            Token::new(TokenType::Comment, &comment, self.line, start_column)
+        } else {
+            Token::new(TokenType::Unknown, "/", self.line, start_column)
+        }
+    }
+
+    fn read_string(&mut self) -> Token {
+        let start_column = self.column;
+        self.chars.next();
+        self.column += 1;
+        let mut s = String::from("\"");
+        while let Some(&ch) = self.chars.peek() {
+            if ch == '"' {
+                s.push('"');
+                self.chars.next();
+                self.column += 1;
+                break;
+            } else if ch == '\\' {
+                s.push('\\');
+                self.chars.next();
+                self.column += 1;
+                if let Some(&escaped) = self.chars.peek() {
+                    s.push(escaped);
+                    self.chars.next();
+                    self.column += 1;
+                }
+            } else {
+                if ch == '\n' {
+                    self.line += 1;
+                    self.column = 1;
+                } else {
+                    self.column += 1;
+                }
+                s.push(ch);
+                self.chars.next();
+            }
+        }
+        Token::new(TokenType::String, &s, self.line, start_column)
+    }
+
+    fn read_number(&mut self) -> Token {
+        let start_column = self.column;
+        let mut num = String::new();
+        while let Some(&ch) = self.chars.peek() {
+            if ch.is_ascii_digit() || ch == '.' || ch == '-' || ch == 'e' || ch == 'E' || ch == '+' {
+                num.push(ch);
+                self.chars.next();
+                self.column += 1;
+            } else {
+                break;
+            }
+        }
+        Token::new(TokenType::Number, &num, self.line, start_column)
+    }
+
+    fn read_identifier(&mut self) -> Token {
+        let start_column = self.column;
+        let mut ident = String::new();
+        while let Some(&ch) = self.chars.peek() {
+            if ch.is_ascii_alphanumeric() || ch == '_' {
+                ident.push(ch);
+                self.chars.next();
+                self.column += 1;
+            } else {
+                break;
+            }
+        }
+        let token_type = match ident.as_str() {
+            "name" => TokenType::Name,
+            "shadingModel" => TokenType::ShadingModel,
+            "requires" => TokenType::Requires,
+            "parameters" => TokenType::Parameters,
+            "type" => TokenType::Type,
+            "true" => TokenType::True,
+            "false" => TokenType::False,
+            "lit" => TokenType::Lit,
+            "unlit" => TokenType::Unlit,
+            "float" => TokenType::Float,
+            "sampler2d" => TokenType::Sampler2d,
+            _ => TokenType::Identifier,
+        };
+        Token::new(token_type, &ident, self.line, start_column)
     }
 }
