@@ -8,7 +8,24 @@ pub mod completion;
 pub mod diagnostics;
 
 use lexer::{JsonishLexer, MaterialLexer};
+use parser::Parser;
+use completion::{CompletionContext, CompletionEngine};
+use diagnostics::{DiagnosticSeverity, Validator};
 use token::Token;
+use serde::Serialize;
+
+#[derive(Serialize)]
+struct JsDiagnostic {
+    message: String,
+    severity: String,
+}
+
+#[derive(Serialize)]
+struct JsCompletionItem {
+    label: String,
+    kind: String,
+    documentation: Option<String>,
+}
 
 #[napi]
 pub fn tokenize_material(input: String) -> Vec<Token> {
@@ -20,6 +37,53 @@ pub fn tokenize_material(input: String) -> Vec<Token> {
 pub fn tokenize_jsonish(input: String) -> Vec<Token> {
     let mut lexer = JsonishLexer::new(&input);
     lexer.tokenize()
+}
+
+#[napi]
+pub fn validate_material_from_jsonish(input: String) -> String {
+    let mut lexer = JsonishLexer::new(&input);
+    let tokens = lexer.tokenize();
+    let mut parser = Parser::new(tokens);
+    let mut diagnostics = vec![];
+    
+    if let Some(material) = parser.parse_material() {
+        let validator = Validator::new();
+        diagnostics = validator.validate_material(&material);
+    }
+    
+    let js_diagnostics: Vec<JsDiagnostic> = diagnostics.into_iter().map(|d| JsDiagnostic {
+        message: d.message,
+        severity: match d.severity {
+            DiagnosticSeverity::Error => "error".to_string(),
+            DiagnosticSeverity::Warning => "warning".to_string(),
+        },
+    }).collect();
+    
+    serde_json::to_string(&js_diagnostics).unwrap_or_else(|_| "[]".to_string())
+}
+
+#[napi]
+pub fn get_completions(context: String) -> String {
+    let ctx = match context.as_str() {
+        "material" => CompletionContext::MaterialBlock,
+        "shadingModel" => CompletionContext::ShadingModelValue,
+        "blending" => CompletionContext::BlendingValue,
+        "parameterType" => CompletionContext::ParameterType,
+        "requires" => CompletionContext::RequiresValue,
+        _ => return "[]".to_string(),
+    };
+    let engine = CompletionEngine::new();
+    let items: Vec<JsCompletionItem> = engine.get_completions(ctx).into_iter().map(|c| JsCompletionItem {
+        label: c.label,
+        kind: match c.kind {
+            completion::CompletionItemKind::Property => "property".to_string(),
+            completion::CompletionItemKind::EnumValue => "enum".to_string(),
+            completion::CompletionItemKind::Type => "type".to_string(),
+        },
+        documentation: c.documentation,
+    }).collect();
+    
+    serde_json::to_string(&items).unwrap_or_else(|_| "[]".to_string())
 }
 
 #[napi]
