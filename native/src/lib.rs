@@ -3,6 +3,8 @@ extern crate napi_derive;
 
 pub mod lexer;
 pub mod token;
+pub mod parser;
+pub mod completion;
 
 use lexer::{JsonishLexer, MaterialLexer};
 use token::Token;
@@ -27,6 +29,7 @@ pub fn hello() -> String {
 #[cfg(test)]
 mod tests {
     use crate::lexer::{JsonishLexer, MaterialLexer};
+    use crate::parser::Parser;
 
     #[test]
     fn test_material_lexer_basic() {
@@ -42,5 +45,15 @@ mod tests {
         let mut lexer = JsonishLexer::new(input);
         let tokens = lexer.tokenize();
         assert!(!tokens.is_empty());
+    }
+
+    #[test]
+    fn test_parser_simple_material() {
+        let input = r#"{ name: TestMat, shadingModel: lit }"#;
+        let mut lexer = JsonishLexer::new(input);
+        let tokens = lexer.tokenize();
+        let mut parser = Parser::new(tokens);
+        let result = parser.parse_material();
+        assert!(result.is_some());
     }
 }
