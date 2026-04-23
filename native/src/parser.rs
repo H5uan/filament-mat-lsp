@@ -43,7 +43,8 @@ impl Parser {
   pub fn parse_material(&mut self) -> Option<Material> {
     self.skip_to(&TokenType::LCurly);
     if let Some(token) = self.tokens.peek()
-      && token.is_type(&TokenType::LCurly) {
+      && token.is_type(&TokenType::LCurly)
+    {
       self.tokens.next();
     }
 
@@ -93,7 +94,8 @@ impl Parser {
           if let Some(Value::Array(arr)) = self.parse_value() {
             for item in arr {
               if let Value::Object(props) = item
-                && let Some(param) = Self::parse_parameter(props) {
+                && let Some(param) = Self::parse_parameter(props)
+              {
                 material.parameters.push(param);
               }
             }
@@ -187,7 +189,8 @@ impl Parser {
             arr.push(val);
           }
           if let Some(t) = self.tokens.peek()
-            && t.is_type(&TokenType::Comma) {
+            && t.is_type(&TokenType::Comma)
+          {
             self.tokens.next();
           }
         }
@@ -208,7 +211,8 @@ impl Parser {
             }
           }
           if let Some(t) = self.tokens.peek()
-            && t.is_type(&TokenType::Comma) {
+            && t.is_type(&TokenType::Comma)
+          {
             self.tokens.next();
           }
         }
@@ -243,7 +247,8 @@ impl Parser {
 
   fn expect(&mut self, expected: &TokenType) {
     if let Some(token) = self.tokens.peek()
-      && token.is_type(expected) {
+      && token.is_type(expected)
+    {
       self.tokens.next();
     }
   }
