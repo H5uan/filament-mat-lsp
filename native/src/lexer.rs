@@ -332,3 +332,75 @@ impl<'a> JsonishLexer<'a> {
     Token::new(token_type, &ident, self.state.line, start_column)
   }
 }
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use crate::token::TokenExt;
+
+  #[test]
+  fn test_lex_keywords() {
+    let input = "{ } [ ] : ,";
+    let mut lexer = JsonishLexer::new(input);
+    let tokens = lexer.tokenize();
+    assert_eq!(tokens.len(), 6);
+    assert!(tokens[0].is_type(&TokenType::LCurly));
+    assert!(tokens[1].is_type(&TokenType::RCurly));
+    assert!(tokens[2].is_type(&TokenType::LBracket));
+    assert!(tokens[3].is_type(&TokenType::RBracket));
+    assert!(tokens[4].is_type(&TokenType::Colon));
+    assert!(tokens[5].is_type(&TokenType::Comma));
+  }
+
+  #[test]
+  fn test_lex_string() {
+    let input = r#""hello world""#;
+    let mut lexer = JsonishLexer::new(input);
+    let tokens = lexer.tokenize();
+    assert_eq!(tokens.len(), 1);
+    assert!(tokens[0].is_type(&TokenType::String));
+    assert_eq!(tokens[0].value, "\"hello world\"");
+  }
+
+  #[test]
+  fn test_lex_number() {
+    let input = "123.45";
+    let mut lexer = JsonishLexer::new(input);
+    let tokens = lexer.tokenize();
+    assert_eq!(tokens.len(), 1);
+    assert!(tokens[0].is_type(&TokenType::Number));
+    assert_eq!(tokens[0].value, "123.45");
+  }
+
+  #[test]
+  fn test_lex_comment() {
+    let input = "// this is a comment\nname";
+    let mut lexer = JsonishLexer::new(input);
+    let tokens = lexer.tokenize();
+    assert_eq!(tokens.len(), 2);
+    assert!(tokens[0].is_type(&TokenType::Comment));
+    assert!(tokens[1].is_type(&TokenType::Name));
+  }
+
+  #[test]
+  fn test_lex_identifiers() {
+    let input = "name shadingModel parameters";
+    let mut lexer = JsonishLexer::new(input);
+    let tokens = lexer.tokenize();
+    assert_eq!(tokens.len(), 3);
+    assert!(tokens[0].is_type(&TokenType::Name));
+    assert!(tokens[1].is_type(&TokenType::ShadingModel));
+    assert!(tokens[2].is_type(&TokenType::Parameters));
+  }
+
+  #[test]
+  fn test_material_lexer() {
+    let input = "material { }";
+    let mut lexer = MaterialLexer::new(input);
+    let tokens = lexer.tokenize();
+    assert_eq!(tokens.len(), 3);
+    assert!(tokens[0].is_type(&TokenType::Material));
+    assert!(tokens[1].is_type(&TokenType::LCurly));
+    assert!(tokens[2].is_type(&TokenType::RCurly));
+  }
+}

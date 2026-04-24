@@ -166,7 +166,7 @@ pub enum TokenType {
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Token {
-  pub token_type: String,
+  pub token_type: TokenType,
   pub value: String,
   pub line: u32,
   pub column: u32,
@@ -175,7 +175,7 @@ pub struct Token {
 impl Token {
   pub fn new(token_type: TokenType, value: &str, line: u32, column: u32) -> Self {
     Self {
-      token_type: format!("{token_type:?}"),
+      token_type,
       value: value.to_string(),
       line,
       column,
@@ -190,6 +190,6 @@ pub trait TokenExt {
 
 impl TokenExt for Token {
   fn is_type(&self, token_type: &TokenType) -> bool {
-    self.token_type == format!("{token_type:?}")
+    self.token_type == *token_type
   }
 }

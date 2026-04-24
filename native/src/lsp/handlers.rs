@@ -6,11 +6,35 @@ use filament_mat_lsp::completion::{
 };
 use filament_mat_lsp::diagnostics::Validator;
 use filament_mat_lsp::hover::HoverEngine;
-use filament_mat_lsp::lexer::JsonishLexer;
-use filament_mat_lsp::parser::Parser;
 
 use super::conv;
 use super::server::ServerState;
+
+fn send_response<T: serde::Serialize>(
+  sender: &crossbeam_channel::Sender<Message>,
+  id: lsp_server::RequestId,
+  result: T,
+) -> Result<(), Box<dyn std::error::Error>> {
+  let result = serde_json::to_value(&result)?;
+  let resp = Response {
+    id,
+    result: Some(result),
+    error: None,
+  };
+  sender.send(resp.into())?;
+  Ok(())
+}
+
+fn send_error(
+  sender: &crossbeam_channel::Sender<Message>,
+  id: lsp_server::RequestId,
+  code: i32,
+  message: String,
+) -> Result<(), Box<dyn std::error::Error>> {
+  let resp = Response::new_err(id, code, message);
+  sender.send(resp.into())?;
+  Ok(())
+}
 
 pub fn handle_request(
   server: &mut ServerState,
@@ -21,66 +45,35 @@ pub fn handle_request(
     "textDocument/completion" => {
       let params: CompletionParams = serde_json::from_value(req.params)?;
       let completions = handle_completion(server, params);
-      let result = serde_json::to_value(&completions)?;
-      let resp = Response {
-        id: req.id,
-        result: Some(result),
-        error: None,
-      };
-      sender.send(resp.into())?;
+      send_response(sender, req.id, completions)?;
     }
     "textDocument/hover" => {
       let params: HoverParams = serde_json::from_value(req.params)?;
       let hover = handle_hover(server, params);
-      let result = serde_json::to_value(&hover)?;
-      let resp = Response {
-        id: req.id,
-        result: Some(result),
-        error: None,
-      };
-      sender.send(resp.into())?;
+      send_response(sender, req.id, hover)?;
     }
     "textDocument/definition" => {
       let params: GotoDefinitionParams = serde_json::from_value(req.params)?;
       let locations = handle_definition(server, params);
-      let result = serde_json::to_value(&locations)?;
-      let resp = Response {
-        id: req.id,
-        result: Some(result),
-        error: None,
-      };
-      sender.send(resp.into())?;
+      send_response(sender, req.id, locations)?;
     }
     "textDocument/documentSymbol" => {
       let params: DocumentSymbolParams = serde_json::from_value(req.params)?;
       let symbols = handle_document_symbol(server, params);
-      let result = serde_json::to_value(&symbols)?;
-      let resp = Response {
-        id: req.id,
-        result: Some(result),
-        error: None,
-      };
-      sender.send(resp.into())?;
+      send_response(sender, req.id, symbols)?;
     }
     "textDocument/diagnostic" => {
       let params: DocumentDiagnosticParams = serde_json::from_value(req.params)?;
       let diagnostics = handle_diagnostic(server, params);
-      let result = serde_json::to_value(&diagnostics)?;
-      let resp = Response {
-        id: req.id,
-        result: Some(result),
-        error: None,
-      };
-      sender.send(resp.into())?;
+      send_response(sender, req.id, diagnostics)?;
     }
     _ => {
-      // Method not found - return error
-      let resp = Response::new_err(
+      send_error(
+        sender,
         req.id,
         lsp_server::ErrorCode::MethodNotFound as i32,
         format!("Method {} not found", req.method),
-      );
-      sender.send(resp.into())?;
+      )?;
     }
   }
   Ok(())
@@ -98,13 +91,10 @@ pub fn handle_notification(
       let version = params.text_document.version;
       server.insert_document(
         uri.clone(),
-        super::server::Document {
-          text: text.clone(),
-          version,
-        },
+        super::server::Document::new(text.clone(), version),
       );
       // Trigger diagnostics
-      let diagnostics = compute_diagnostics(&text);
+      let diagnostics = compute_diagnostics(server, &uri);
       publish_diagnostics(&uri, diagnostics, server)?;
     }
     "textDocument/didChange" => {
@@ -114,10 +104,8 @@ pub fn handle_notification(
       for change in params.content_changes {
         server.apply_change(&uri, change, version);
       }
-      if let Some(doc) = server.get_document(&uri) {
-        let diagnostics = compute_diagnostics(&doc.text);
-        publish_diagnostics(&uri, diagnostics, server)?;
-      }
+      let diagnostics = compute_diagnostics(server, &uri);
+      publish_diagnostics(&uri, diagnostics, server)?;
     }
     "textDocument/didClose" => {
       let params: DidCloseTextDocumentParams = serde_json::from_value(not.params)?;
@@ -201,7 +189,7 @@ fn is_word_char(c: char) -> bool {
 }
 
 fn handle_definition(
-  server: &ServerState,
+  server: &mut ServerState,
   params: GotoDefinitionParams,
 ) -> Option<GotoDefinitionResponse> {
   let uri = &params.text_document_position_params.text_document.uri;
@@ -210,11 +198,10 @@ fn handle_definition(
   let doc = server.get_document(uri)?;
   let word = extract_word_at_position(&doc.text, position)?;
 
-  let mut lexer = JsonishLexer::new(&doc.text);
-  let tokens = lexer.tokenize();
-  let mut parser = Parser::new(tokens);
-
-  let material = parser.parse_material()?;
+  let material = match server.parse_document(uri)? {
+    Ok(m) => m,
+    Err(_) => return None,
+  };
 
   // Check if word is a material property key
   let mut locations = Vec::new();
@@ -255,16 +242,12 @@ fn handle_definition(
 }
 
 fn handle_diagnostic(
-  server: &ServerState,
+  server: &mut ServerState,
   params: DocumentDiagnosticParams,
 ) -> DocumentDiagnosticReportResult {
   let uri = params.text_document.uri;
 
-  let diagnostics = if let Some(doc) = server.get_document(&uri) {
-    compute_diagnostics(&doc.text)
-  } else {
-    vec![]
-  };
+  let diagnostics = compute_diagnostics(server, &uri);
 
   DocumentDiagnosticReportResult::Report(DocumentDiagnosticReport::Full(
     RelatedFullDocumentDiagnosticReport {
@@ -279,17 +262,14 @@ fn handle_diagnostic(
 
 #[allow(deprecated)]
 fn handle_document_symbol(
-  server: &ServerState,
+  server: &mut ServerState,
   params: DocumentSymbolParams,
 ) -> Option<DocumentSymbolResponse> {
   let uri = &params.text_document.uri;
-  let doc = server.get_document(uri)?;
-
-  let mut lexer = JsonishLexer::new(&doc.text);
-  let tokens = lexer.tokenize();
-  let mut parser = Parser::new(tokens);
-
-  let material = parser.parse_material()?;
+  let material = match server.parse_document(uri)? {
+    Ok(m) => m,
+    Err(_) => return None,
+  };
 
   let mut symbols = Vec::new();
 
@@ -350,20 +330,32 @@ fn handle_document_symbol(
   Some(DocumentSymbolResponse::Nested(symbols))
 }
 
-fn compute_diagnostics(text: &str) -> Vec<lsp_types::Diagnostic> {
-  let mut lexer = JsonishLexer::new(text);
-  let tokens = lexer.tokenize();
-  let mut parser = Parser::new(tokens);
-
+fn compute_diagnostics(server: &mut ServerState, uri: &Uri) -> Vec<lsp_types::Diagnostic> {
   let mut diagnostics = Vec::new();
 
-  if let Some(material) = parser.parse_material() {
-    let validator = Validator::new();
-    let internal_diagnostics = validator.validate_material(&material);
-    diagnostics = internal_diagnostics
-      .into_iter()
-      .map(conv::to_lsp_diagnostic)
-      .collect();
+  match server.parse_document(uri) {
+    Some(Ok(material)) => {
+      let validator = Validator::new();
+      let internal_diagnostics = validator.validate_material(&material);
+      diagnostics = internal_diagnostics
+        .into_iter()
+        .map(conv::to_lsp_diagnostic)
+        .collect();
+    }
+    Some(Err(parse_err)) => {
+      diagnostics.push(lsp_types::Diagnostic {
+        range: conv::to_lsp_range(&parse_err.range),
+        severity: Some(lsp_types::DiagnosticSeverity::ERROR),
+        code: None,
+        code_description: None,
+        source: Some("filament-mat".to_string()),
+        message: parse_err.message,
+        related_information: None,
+        tags: None,
+        data: None,
+      });
+    }
+    None => {}
   }
 
   diagnostics
