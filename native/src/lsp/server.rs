@@ -1,6 +1,6 @@
 use crossbeam_channel::Sender;
 use lsp_server::Message;
-use lsp_types::Url;
+use lsp_types::Uri;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
@@ -10,7 +10,7 @@ pub struct Document {
 }
 
 pub struct ServerState {
-  pub documents: HashMap<Url, Document>,
+  pub documents: HashMap<Uri, Document>,
   sender: Sender<Message>,
 }
 
@@ -22,21 +22,21 @@ impl ServerState {
     }
   }
 
-  pub fn get_document(&self, uri: &Url) -> Option<&Document> {
+  pub fn get_document(&self, uri: &Uri) -> Option<&Document> {
     self.documents.get(uri)
   }
 
-  pub fn insert_document(&mut self, uri: Url, document: Document) {
+  pub fn insert_document(&mut self, uri: Uri, document: Document) {
     self.documents.insert(uri, document);
   }
 
-  pub fn remove_document(&mut self, uri: &Url) {
+  pub fn remove_document(&mut self, uri: &Uri) {
     self.documents.remove(uri);
   }
 
   pub fn apply_change(
     &mut self,
-    uri: &Url,
+    uri: &Uri,
     change: lsp_types::TextDocumentContentChangeEvent,
     version: i32,
   ) {
