@@ -1,4 +1,3 @@
-use napi_derive::napi;
 use serde::Serialize;
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -165,7 +164,6 @@ pub enum TokenType {
   Unknown,
 }
 
-#[napi(object)]
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Token {
   pub token_type: String,

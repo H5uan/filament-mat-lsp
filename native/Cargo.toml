@@ -1,23 +1,25 @@
 [package]
-name = "filament-mat-core"
+name = "filament-mat-lsp"
 version = "0.1.0"
 edition = "2024"
 authors = ["filament-mat-lsp contributors"]
 license = "MIT"
-description = "Rust core for Filament Material LSP"
+description = "Language Server Protocol implementation for Filament Material files"
+
+[[bin]]
+name = "filament-mat-lsp"
+path = "src/main.rs"
 
 [lib]
-name = "filament_mat_core"
-crate-type = ["cdylib", "staticlib"]
+name = "filament_mat_lsp"
+path = "src/lib.rs"
 
 [dependencies]
-napi = { version = "2.16", features = ["napi3"] }
-napi-derive = "2.16"
+lsp-server = "0.7"
+lsp-types = "0.95"
+crossbeam-channel = "0.5"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-
-[build-dependencies]
-napi-build = "2.0"
 
 [profile.release]
 lto = true

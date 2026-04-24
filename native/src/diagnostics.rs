@@ -36,11 +36,27 @@ impl Validator {
     let mut diagnostics = Vec::new();
 
     if material.name.is_none() {
-      diagnostics.push(Self::error("Material is missing 'name' property"));
+      // Use a precise range pointing to the first line of material block
+      let range = TextRange {
+        start: TextPosition { line: material.range.start.line, character: material.range.start.character },
+        end: TextPosition { line: material.range.start.line, character: material.range.start.character + 8 }, // "material" length
+      };
+      diagnostics.push(Self::error(
+        "Material is missing 'name' property",
+        Some(range),
+      ));
     }
 
     if material.shading_model.is_none() {
-      diagnostics.push(Self::error("Material is missing 'shadingModel' property"));
+      // Use a precise range pointing to the first line of material block
+      let range = TextRange {
+        start: TextPosition { line: material.range.start.line, character: material.range.start.character },
+        end: TextPosition { line: material.range.start.line, character: material.range.start.character + 8 },
+      };
+      diagnostics.push(Self::error(
+        "Material is missing 'shadingModel' property",
+        Some(range),
+      ));
     }
 
     for param in &material.parameters {
@@ -54,21 +70,21 @@ impl Validator {
     let mut diagnostics = Vec::new();
 
     if param.name.is_empty() {
-      diagnostics.push(Self::error("Parameter is missing a name"));
+      diagnostics.push(Self::error("Parameter is missing a name", None));
     }
 
     if param.param_type.is_empty() {
       diagnostics.push(Self::error(format!(
         "Parameter '{}' is missing a type",
         param.name
-      )));
+      ), None));
     }
 
     if !Self::is_valid_parameter_type(&param.param_type) {
       diagnostics.push(Self::warning(format!(
         "Parameter type '{}' is not a standard Filament type",
         param.param_type
-      )));
+      ), None));
     }
 
     diagnostics
@@ -102,19 +118,19 @@ impl Validator {
     )
   }
 
-  fn error(message: impl Into<String>) -> Diagnostic {
+  fn error(message: impl Into<String>, range: Option<TextRange>) -> Diagnostic {
     Diagnostic {
       message: message.into(),
       severity: DiagnosticSeverity::Error,
-      range: None,
+      range,
     }
   }
 
-  fn warning(message: impl Into<String>) -> Diagnostic {
+  fn warning(message: impl Into<String>, range: Option<TextRange>) -> Diagnostic {
     Diagnostic {
       message: message.into(),
       severity: DiagnosticSeverity::Warning,
-      range: None,
+      range,
     }
   }
 }
@@ -128,15 +144,23 @@ impl Default for Validator {
 #[cfg(test)]
 mod tests {
   use super::*;
-  use crate::parser::{Material, Parameter};
+  use crate::parser::{Material, Parameter, Located, Value};
+
+  fn dummy_range() -> TextRange {
+    TextRange {
+      start: TextPosition { line: 0, character: 0 },
+      end: TextPosition { line: 0, character: 0 },
+    }
+  }
 
   #[test]
   fn test_validate_valid_material() {
     let material = Material {
-      name: Some("TestMat".to_string()),
-      shading_model: Some("lit".to_string()),
+      range: dummy_range(),
+      name: Some(Located::new("TestMat".to_string(), dummy_range())),
+      shading_model: Some(Located::new("lit".to_string(), dummy_range())),
       parameters: vec![],
-      requires: vec![],
+      requires: Located::new(vec![], dummy_range()),
       other_properties: vec![],
     };
 
@@ -148,10 +172,11 @@ mod tests {
   #[test]
   fn test_validate_missing_name() {
     let material = Material {
+      range: dummy_range(),
       name: None,
-      shading_model: Some("lit".to_string()),
+      shading_model: Some(Located::new("lit".to_string(), dummy_range())),
       parameters: vec![],
-      requires: vec![],
+      requires: Located::new(vec![], dummy_range()),
       other_properties: vec![],
     };
 

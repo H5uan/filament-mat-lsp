@@ -37,11 +37,12 @@
         ]
     },
     "scripts": {
-        "vscode:prepublish": "npm run compile",
-        "compile": "tsc -b",
+        "vscode:prepublish": "npm run compile:rust && npm run compile:ts",
+        "compile:rust": "cd native && cargo build --release",
+        "compile:ts": "tsc -b",
         "watch": "tsc -b -w",
-        "lint": "eslint ./client/src ./server/src --ext .ts,.tsx",
-        "postinstall": "cd client && npm install && cd ../server && npm install"
+        "lint": "eslint ./client/src --ext .ts,.tsx",
+        "postinstall": "cd client && npm install"
     },
     "devDependencies": {
         "@types/node": "^18",

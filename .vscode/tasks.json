@@ -4,36 +4,37 @@
         {
             "label": "npm: compile",
             "dependsOn": [
-                "npm: compile client",
-                "npm: compile server"
+                "cargo: build release",
+                "npm: compile client"
             ],
             "group": {
                 "kind": "build",
                 "isDefault": true
             },
-            "problemMatcher": "$tsc"
+            "problemMatcher": ["$rustc", "$tsc"]
         },
         {
             "label": "npm: compile client",
             "type": "npm",
-            "script": "compile",
-            "path": "client",
+            "script": "compile:ts",
             "group": "build",
             "problemMatcher": "$tsc"
         },
         {
-            "label": "npm: compile server",
-            "type": "npm",
-            "script": "compile",
-            "path": "server",
+            "label": "cargo: build release",
+            "type": "shell",
+            "command": "cargo",
+            "args": ["build", "--release"],
+            "options": {
+                "cwd": "${workspaceFolder}/native"
+            },
             "group": "build",
-            "problemMatcher": "$tsc"
+            "problemMatcher": "$rustc"
         },
         {
             "label": "npm: watch",
             "dependsOn": [
-                "npm: watch client",
-                "npm: watch server"
+                "npm: watch client"
             ],
             "problemMatcher": "$tsc-watch",
             "isBackground": true
@@ -43,14 +44,6 @@
             "type": "npm",
             "script": "watch",
             "path": "client",
-            "problemMatcher": "$tsc-watch",
-            "isBackground": true
-        },
-        {
-            "label": "npm: watch server",
-            "type": "npm",
-            "script": "watch",
-            "path": "server",
             "problemMatcher": "$tsc-watch",
             "isBackground": true
         }

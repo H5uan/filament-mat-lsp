@@ -1,14 +1,28 @@
+use crate::diagnostics::{TextPosition, TextRange};
 use crate::token::{Token, TokenExt, TokenType};
 use std::iter::Peekable;
 use std::vec::IntoIter;
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct Located<T> {
+  pub value: T,
+  pub range: TextRange,
+}
+
+impl<T> Located<T> {
+  pub fn new(value: T, range: TextRange) -> Self {
+    Self { value, range }
+  }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct Material {
-  pub name: Option<String>,
-  pub shading_model: Option<String>,
-  pub requires: Vec<String>,
+  pub range: TextRange,
+  pub name: Option<Located<String>>,
+  pub shading_model: Option<Located<String>>,
+  pub requires: Located<Vec<String>>,
   pub parameters: Vec<Parameter>,
-  pub other_properties: Vec<(String, Value)>,
+  pub other_properties: Vec<(String, Located<Value>)>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -31,16 +45,36 @@ pub enum Value {
 
 pub struct Parser {
   tokens: Peekable<IntoIter<Token>>,
+  last_token: Option<Token>,
 }
 
 impl Parser {
   pub fn new(tokens: Vec<Token>) -> Self {
     Self {
       tokens: tokens.into_iter().peekable(),
+      last_token: None,
+    }
+  }
+
+  fn token_pos(token: &Token) -> TextPosition {
+    TextPosition {
+      line: token.line,
+      character: token.column,
+    }
+  }
+
+  fn make_range(start: &Token, end: &Token) -> TextRange {
+    TextRange {
+      start: Self::token_pos(start),
+      end: TextPosition {
+        line: end.line,
+        character: end.column + end.value.len() as u32,
+      },
     }
   }
 
   pub fn parse_material(&mut self) -> Option<Material> {
+    let start_token = self.tokens.peek()?.clone();
     self.skip_to(&TokenType::LCurly);
     if let Some(token) = self.tokens.peek()
       && token.is_type(&TokenType::LCurly)
@@ -49,47 +83,70 @@ impl Parser {
     }
 
     let mut material = Material {
+      range: TextRange {
+        start: Self::token_pos(&start_token),
+        end: TextPosition { line: 0, character: 0 },
+      },
       name: None,
       shading_model: None,
-      requires: Vec::new(),
+      requires: Located::new(Vec::new(), TextRange {
+        start: TextPosition { line: 0, character: 0 },
+        end: TextPosition { line: 0, character: 0 },
+      }),
       parameters: Vec::new(),
       other_properties: Vec::new(),
     };
 
     while let Some(token) = self.tokens.peek() {
       if token.is_type(&TokenType::RCurly) {
-        self.tokens.next();
+        let end_token = self.tokens.next()?;
+        material.range.end = TextPosition {
+          line: end_token.line,
+          character: end_token.column + 1,
+        };
         break;
       }
 
       match token.token_type.as_str() {
         "Name" => {
-          self.tokens.next();
+          let name_token = self.tokens.next()?;
           self.expect(&TokenType::Colon);
-          if let Some(Value::Identifier(s) | Value::String(s)) = self.parse_value() {
-            material.name = Some(s);
-          }
-        }
-        "ShadingModel" => {
-          self.tokens.next();
-          self.expect(&TokenType::Colon);
-          if let Some(Value::Identifier(s)) = self.parse_value() {
-            material.shading_model = Some(s);
-          }
-        }
-        "Requires" => {
-          self.tokens.next();
-          self.expect(&TokenType::Colon);
-          if let Some(Value::Array(arr)) = self.parse_value() {
-            for item in arr {
-              if let Value::Identifier(s) = item {
-                material.requires.push(s);
-              }
+          if let Some(value) = self.parse_value() {
+            let end_token = self.last_token.as_ref().unwrap_or(&name_token);
+            let range = Self::make_range(&name_token, end_token);
+            if let Value::Identifier(s) | Value::String(s) = value {
+              material.name = Some(Located::new(s, range));
             }
           }
         }
+        "ShadingModel" => {
+          let sm_token = self.tokens.next()?;
+          self.expect(&TokenType::Colon);
+          if let Some(value) = self.parse_value() {
+            let end_token = self.last_token.as_ref().unwrap_or(&sm_token);
+            let range = Self::make_range(&sm_token, end_token);
+            if let Value::Identifier(s) = value {
+              material.shading_model = Some(Located::new(s, range));
+            }
+          }
+        }
+        "Requires" => {
+          let req_token = self.tokens.next()?;
+          self.expect(&TokenType::Colon);
+          if let Some(Value::Array(arr)) = self.parse_value() {
+            let end_token = self.last_token.as_ref().unwrap_or(&req_token);
+            let range = Self::make_range(&req_token, end_token);
+            let mut items = Vec::new();
+            for item in arr {
+              if let Value::Identifier(s) = item {
+                items.push(s);
+              }
+            }
+            material.requires = Located::new(items, range);
+          }
+        }
         "Parameters" => {
-          self.tokens.next();
+          let param_token = self.tokens.next()?;
           self.expect(&TokenType::Colon);
           if let Some(Value::Array(arr)) = self.parse_value() {
             for item in arr {
@@ -106,9 +163,11 @@ impl Parser {
           if key_token.is_type(&TokenType::Identifier) {
             self.expect(&TokenType::Colon);
             if let Some(value) = self.parse_value() {
+              let end_token = self.last_token.as_ref().unwrap_or(&key_token);
+              let range = Self::make_range(&key_token, end_token);
               material
                 .other_properties
-                .push((key_token.value.clone(), value));
+                .push((key_token.value.clone(), Located::new(value, range)));
             }
           }
         }
@@ -151,38 +210,46 @@ impl Parser {
     match token.token_type.as_str() {
       "String" => {
         let t = self.tokens.next()?;
+        self.last_token = Some(t.clone());
         let s = t.value;
         let s = s.strip_prefix('"')?.strip_suffix('"')?;
         Some(Value::String(s.to_string()))
       }
       "Number" => {
         let t = self.tokens.next()?;
+        self.last_token = Some(t.clone());
         let n = t.value.parse().ok()?;
         Some(Value::Number(n))
       }
       "True" => {
-        self.tokens.next();
+        let t = self.tokens.next()?;
+        self.last_token = Some(t);
         Some(Value::Bool(true))
       }
       "False" => {
-        self.tokens.next();
+        let t = self.tokens.next()?;
+        self.last_token = Some(t);
         Some(Value::Bool(false))
       }
       "Null" => {
-        self.tokens.next();
+        let t = self.tokens.next()?;
+        self.last_token = Some(t);
         Some(Value::Null)
       }
       "Identifier" | "Lit" | "Unlit" | "Float" | "Sampler2d" | "Back" | "None" | "Opaque"
       | "Object" | "Uv0" | "Color" | "Position" | "Normal" => {
         let t = self.tokens.next()?;
+        self.last_token = Some(t.clone());
         Some(Value::Identifier(t.value))
       }
       "LBracket" => {
-        self.tokens.next();
+        let t = self.tokens.next()?;
+        self.last_token = Some(t);
         let mut arr = Vec::new();
         while let Some(t) = self.tokens.peek() {
           if t.is_type(&TokenType::RBracket) {
-            self.tokens.next();
+            let t = self.tokens.next()?;
+            self.last_token = Some(t);
             break;
           }
           if let Some(val) = self.parse_value() {
@@ -191,17 +258,20 @@ impl Parser {
           if let Some(t) = self.tokens.peek()
             && t.is_type(&TokenType::Comma)
           {
-            self.tokens.next();
+            let t = self.tokens.next()?;
+            self.last_token = Some(t);
           }
         }
         Some(Value::Array(arr))
       }
       "LCurly" => {
-        self.tokens.next();
+        let t = self.tokens.next()?;
+        self.last_token = Some(t);
         let mut obj = Vec::new();
         while let Some(t) = self.tokens.peek() {
           if t.is_type(&TokenType::RCurly) {
-            self.tokens.next();
+            let t = self.tokens.next()?;
+            self.last_token = Some(t);
             break;
           }
           if let Some(key) = self.parse_object_key() {
@@ -213,7 +283,8 @@ impl Parser {
           if let Some(t) = self.tokens.peek()
             && t.is_type(&TokenType::Comma)
           {
-            self.tokens.next();
+            let t = self.tokens.next()?;
+            self.last_token = Some(t);
           }
         }
         Some(Value::Object(obj))
