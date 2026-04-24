@@ -1,0 +1,48 @@
+{
+  "name": "filament-mat-lsp",
+  "description": "VS Code extension with Rust LSP server for Filament .mat material files",
+  "instructions": "AGENTS.md",
+  "scripts": {
+    "build": "npm run vscode:prepublish",
+    "build:rust": "npm run compile:rust",
+    "build:ts": "npm run compile:ts",
+    "test": "npm run test:rust",
+    "lint": "npm run check",
+    "fix": "npm run fix"
+  },
+  "preCommitChecks": [
+    "npm run check"
+  ],
+  "language": {
+    "primary": "rust",
+    "secondary": "typescript"
+  },
+  "toolchain": {
+    "rust": "nightly",
+    "node": "20"
+  },
+  "keyDirectories": {
+    "native": "Rust LSP server (main logic)",
+    "client/src": "VS Code extension client (thin wrapper)",
+    "syntaxes": "TextMate grammar for .mat files",
+    "test": "Sample .mat test fixtures"
+  },
+  "ci": {
+    "workflow": ".github/workflows/ci.yml",
+    "checks": [
+      "cargo fmt --all -- --check",
+      "cargo clippy -- -D warnings",
+      "cargo check --all",
+      "cargo test --all",
+      "cd client && npx tsc --noEmit"
+    ],
+    "platforms": ["windows-latest"]
+  },
+  "important": [
+    "Always run 'npm run check' before committing — it mirrors the full CI pipeline",
+    "Rust code uses nightly toolchain; run 'rustup default nightly' if format/clippy differ from CI",
+    "No ESLint config exists — TypeScript checks are only via tsc --noEmit",
+    "Rust formatting uses 2-space tabs (see native/.rustfmt.toml)",
+    "The LSP server binary is auto-built by the client on first launch during development"
+  ]
+}
