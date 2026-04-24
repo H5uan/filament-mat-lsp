@@ -74,6 +74,21 @@ GitHub Actions (`.github/workflows/ci.yml`):
 2. TypeScript type check on `windows-latest`
 3. Release artifacts built for multiple platforms on tag push
 
+## Pre-commit / Pre-push Policy
+
+**Must follow**: Before executing `git commit` or `git push`, you must automatically run CI checks and confirm they pass before proceeding with git operations.
+
+Execution flow:
+1. First run: `npm run check`
+2. If it fails:
+   - Run `npm run fix` to attempt auto-fixes
+   - Run `npm run check` again
+   - If it still fails, report the specific errors to the user and **do not execute git commit/push**
+3. Only after all checks pass, proceed with the user's requested git operation
+4. Remind the user to check for secret files (.env, credentials.json, etc.) before committing
+
+---
+
 ## Important Notes
 
 - **Binary name**: `filament-mat-lsp` (macOS/Linux), `filament-mat-lsp.exe` (Windows)
