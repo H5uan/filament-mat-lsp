@@ -38,8 +38,14 @@ impl Validator {
     if material.name.is_none() {
       // Use a precise range pointing to the first line of material block
       let range = TextRange {
-        start: TextPosition { line: material.range.start.line, character: material.range.start.character },
-        end: TextPosition { line: material.range.start.line, character: material.range.start.character + 8 }, // "material" length
+        start: TextPosition {
+          line: material.range.start.line,
+          character: material.range.start.character,
+        },
+        end: TextPosition {
+          line: material.range.start.line,
+          character: material.range.start.character + 8,
+        }, // "material" length
       };
       diagnostics.push(Self::error(
         "Material is missing 'name' property",
@@ -50,8 +56,14 @@ impl Validator {
     if material.shading_model.is_none() {
       // Use a precise range pointing to the first line of material block
       let range = TextRange {
-        start: TextPosition { line: material.range.start.line, character: material.range.start.character },
-        end: TextPosition { line: material.range.start.line, character: material.range.start.character + 8 },
+        start: TextPosition {
+          line: material.range.start.line,
+          character: material.range.start.character,
+        },
+        end: TextPosition {
+          line: material.range.start.line,
+          character: material.range.start.character + 8,
+        },
       };
       diagnostics.push(Self::error(
         "Material is missing 'shadingModel' property",
@@ -74,17 +86,20 @@ impl Validator {
     }
 
     if param.param_type.is_empty() {
-      diagnostics.push(Self::error(format!(
-        "Parameter '{}' is missing a type",
-        param.name
-      ), None));
+      diagnostics.push(Self::error(
+        format!("Parameter '{}' is missing a type", param.name),
+        None,
+      ));
     }
 
     if !Self::is_valid_parameter_type(&param.param_type) {
-      diagnostics.push(Self::warning(format!(
-        "Parameter type '{}' is not a standard Filament type",
-        param.param_type
-      ), None));
+      diagnostics.push(Self::warning(
+        format!(
+          "Parameter type '{}' is not a standard Filament type",
+          param.param_type
+        ),
+        None,
+      ));
     }
 
     diagnostics
@@ -144,12 +159,18 @@ impl Default for Validator {
 #[cfg(test)]
 mod tests {
   use super::*;
-  use crate::parser::{Material, Parameter, Located, Value};
+  use crate::parser::{Located, Material, Parameter};
 
   fn dummy_range() -> TextRange {
     TextRange {
-      start: TextPosition { line: 0, character: 0 },
-      end: TextPosition { line: 0, character: 0 },
+      start: TextPosition {
+        line: 0,
+        character: 0,
+      },
+      end: TextPosition {
+        line: 0,
+        character: 0,
+      },
     }
   }
 

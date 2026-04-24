@@ -85,14 +85,26 @@ impl Parser {
     let mut material = Material {
       range: TextRange {
         start: Self::token_pos(&start_token),
-        end: TextPosition { line: 0, character: 0 },
+        end: TextPosition {
+          line: 0,
+          character: 0,
+        },
       },
       name: None,
       shading_model: None,
-      requires: Located::new(Vec::new(), TextRange {
-        start: TextPosition { line: 0, character: 0 },
-        end: TextPosition { line: 0, character: 0 },
-      }),
+      requires: Located::new(
+        Vec::new(),
+        TextRange {
+          start: TextPosition {
+            line: 0,
+            character: 0,
+          },
+          end: TextPosition {
+            line: 0,
+            character: 0,
+          },
+        },
+      ),
       parameters: Vec::new(),
       other_properties: Vec::new(),
     };
@@ -146,7 +158,7 @@ impl Parser {
           }
         }
         "Parameters" => {
-          let param_token = self.tokens.next()?;
+          self.tokens.next()?;
           self.expect(&TokenType::Colon);
           if let Some(Value::Array(arr)) = self.parse_value() {
             for item in arr {

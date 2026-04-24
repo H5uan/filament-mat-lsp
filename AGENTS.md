@@ -38,6 +38,29 @@ cargo clippy -- -D warnings
 cargo build --release  # binary at target/release/filament-mat-lsp
 ```
 
+## Local CI Verification (Run Before Push)
+
+Mirror of `.github/workflows/ci.yml`. Run these before every commit to ensure CI will pass:
+
+```bash
+# Full verification (Rust + TypeScript)
+npm run check
+
+# Rust only
+npm run check:rust
+# Equivalent to: cd native && cargo fmt --all -- --check && cargo clippy -- -D warnings && cargo check --all && cargo test --all
+
+# TypeScript only
+npm run check:ts
+# Equivalent to: cd client && npx tsc --noEmit
+
+# Auto-fix Rust issues
+npm run fix
+# Equivalent to: cd native && cargo fmt --all && cargo clippy --fix --allow-dirty -- -D warnings
+```
+
+**Toolchain note**: CI uses nightly Rust (`dtolnay/rust-toolchain@nightly`). If you encounter format/clippy discrepancies, ensure your local toolchain is nightly: `rustup default nightly`.
+
 ## Testing & Debugging
 
 - **VS Code extension**: Open repo in VS Code, press `F5` to launch Extension Development Host. The client will auto-build the Rust binary if not present.

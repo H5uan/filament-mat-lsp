@@ -42,7 +42,18 @@
         "compile:ts": "tsc -b",
         "watch": "tsc -b -w",
         "lint": "eslint ./client/src --ext .ts,.tsx",
-        "postinstall": "cd client && npm install"
+        "postinstall": "cd client && npm install",
+
+        "check": "npm run check:rust && npm run check:ts",
+        "check:rust": "cd native && cargo fmt --all -- --check && cargo clippy -- -D warnings && cargo check --all && cargo test --all",
+        "check:ts": "cd client && npx tsc --noEmit",
+
+        "fix": "npm run fix:rust && npm run fix:ts",
+        "fix:rust": "cd native && cargo fmt --all && cargo clippy --fix --allow-dirty -- -D warnings",
+        "fix:ts": "cd client && npx tsc --noEmit",
+
+        "test": "cd native && cargo test --all",
+        "test:rust": "cd native && cargo test --all"
     },
     "devDependencies": {
         "@types/node": "^18",
