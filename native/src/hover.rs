@@ -1,12 +1,18 @@
 use std::collections::HashMap;
+use std::sync::OnceLock;
 
-pub struct HoverEngine {
-  docs: HashMap<String, String>,
-}
+static DOCS: OnceLock<HashMap<String, String>> = OnceLock::new();
+
+pub struct HoverEngine;
 
 impl HoverEngine {
   pub fn new() -> Self {
-    let mut docs = HashMap::new();
+    Self
+  }
+
+  fn docs() -> &'static HashMap<String, String> {
+    DOCS.get_or_init(|| {
+      let mut docs = HashMap::new();
 
     // Material properties
     docs.insert(
@@ -97,11 +103,12 @@ impl HoverEngine {
       "Custom blending with user-defined blend functions.".to_string(),
     );
 
-    Self { docs }
+      docs
+    })
   }
 
-  pub fn get_hover(&self, word: &str) -> Option<&String> {
-    self.docs.get(word)
+  pub fn get_hover(&self, word: &str) -> Option<&'static String> {
+    Self::docs().get(word)
   }
 }
 

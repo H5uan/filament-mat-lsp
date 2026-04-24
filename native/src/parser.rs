@@ -4,6 +4,51 @@ use std::iter::Peekable;
 use std::vec::IntoIter;
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct ParseError {
+  pub message: String,
+  pub range: TextRange,
+}
+
+impl ParseError {
+  fn new(message: impl Into<String>, range: TextRange) -> Self {
+    Self {
+      message: message.into(),
+      range,
+    }
+  }
+
+  fn at_token(message: impl Into<String>, token: &Token) -> Self {
+    let range = TextRange {
+      start: TextPosition {
+        line: token.line,
+        character: token.column,
+      },
+      end: TextPosition {
+        line: token.line,
+        character: token.column + token.value.len() as u32,
+      },
+    };
+    Self::new(message, range)
+  }
+
+  fn at_eof(expected: &str) -> Self {
+    Self::new(
+      format!("Unexpected end of file, expected {}", expected),
+      TextRange {
+        start: TextPosition {
+          line: 0,
+          character: 0,
+        },
+        end: TextPosition {
+          line: 0,
+          character: 0,
+        },
+      },
+    )
+  }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct Located<T> {
   pub value: T,
   pub range: TextRange,
@@ -73,8 +118,11 @@ impl Parser {
     }
   }
 
-  pub fn parse_material(&mut self) -> Option<Material> {
-    let start_token = self.tokens.peek()?.clone();
+  pub fn parse_material(&mut self) -> Result<Material, ParseError> {
+    let start_token = match self.tokens.peek() {
+      Some(t) => t.clone(),
+      None => return Err(ParseError::at_eof("material block")),
+    };
     self.skip_to(&TokenType::LCurly);
     if let Some(token) = self.tokens.peek()
       && token.is_type(&TokenType::LCurly)
@@ -111,7 +159,10 @@ impl Parser {
 
     while let Some(token) = self.tokens.peek() {
       if token.is_type(&TokenType::RCurly) {
-        let end_token = self.tokens.next()?;
+        let end_token = self
+          .tokens
+          .next()
+          .ok_or_else(|| ParseError::at_eof("closing brace"))?;
         material.range.end = TextPosition {
           line: end_token.line,
           character: end_token.column + 1,
@@ -119,11 +170,14 @@ impl Parser {
         break;
       }
 
-      match token.token_type.as_str() {
-        "Name" => {
-          let name_token = self.tokens.next()?;
+      match token.token_type {
+        TokenType::Name => {
+          let name_token = self
+            .tokens
+            .next()
+            .ok_or_else(|| ParseError::at_eof("property name"))?;
           self.expect(&TokenType::Colon);
-          if let Some(value) = self.parse_value() {
+          if let Ok(value) = self.parse_value() {
             let end_token = self.last_token.as_ref().unwrap_or(&name_token);
             let range = Self::make_range(&name_token, end_token);
             if let Value::Identifier(s) | Value::String(s) = value {
@@ -131,10 +185,13 @@ impl Parser {
             }
           }
         }
-        "ShadingModel" => {
-          let sm_token = self.tokens.next()?;
+        TokenType::ShadingModel => {
+          let sm_token = self
+            .tokens
+            .next()
+            .ok_or_else(|| ParseError::at_eof("shadingModel property"))?;
           self.expect(&TokenType::Colon);
-          if let Some(value) = self.parse_value() {
+          if let Ok(value) = self.parse_value() {
             let end_token = self.last_token.as_ref().unwrap_or(&sm_token);
             let range = Self::make_range(&sm_token, end_token);
             if let Value::Identifier(s) = value {
@@ -142,10 +199,13 @@ impl Parser {
             }
           }
         }
-        "Requires" => {
-          let req_token = self.tokens.next()?;
+        TokenType::Requires => {
+          let req_token = self
+            .tokens
+            .next()
+            .ok_or_else(|| ParseError::at_eof("requires property"))?;
           self.expect(&TokenType::Colon);
-          if let Some(Value::Array(arr)) = self.parse_value() {
+          if let Ok(Value::Array(arr)) = self.parse_value() {
             let end_token = self.last_token.as_ref().unwrap_or(&req_token);
             let range = Self::make_range(&req_token, end_token);
             let mut items = Vec::new();
@@ -157,13 +217,16 @@ impl Parser {
             material.requires = Located::new(items, range);
           }
         }
-        "Parameters" => {
-          self.tokens.next()?;
+        TokenType::Parameters => {
+          self
+            .tokens
+            .next()
+            .ok_or_else(|| ParseError::at_eof("parameters property"))?;
           self.expect(&TokenType::Colon);
-          if let Some(Value::Array(arr)) = self.parse_value() {
+          if let Ok(Value::Array(arr)) = self.parse_value() {
             for item in arr {
               if let Value::Object(props) = item
-                && let Some(param) = Self::parse_parameter(props)
+                && let Ok(param) = Self::parse_parameter(props)
               {
                 material.parameters.push(param);
               }
@@ -171,10 +234,13 @@ impl Parser {
           }
         }
         _ => {
-          let key_token = self.tokens.next()?;
+          let key_token = self
+            .tokens
+            .next()
+            .ok_or_else(|| ParseError::at_eof("property key"))?;
           if key_token.is_type(&TokenType::Identifier) {
             self.expect(&TokenType::Colon);
-            if let Some(value) = self.parse_value() {
+            if let Ok(value) = self.parse_value() {
               let end_token = self.last_token.as_ref().unwrap_or(&key_token);
               let range = Self::make_range(&key_token, end_token);
               material
@@ -186,10 +252,10 @@ impl Parser {
       }
     }
 
-    Some(material)
+    Ok(material)
   }
 
-  fn parse_parameter(mut props: Vec<(String, Value)>) -> Option<Parameter> {
+  fn parse_parameter(mut props: Vec<(String, Value)>) -> Result<Parameter, ParseError> {
     let mut param_type = None;
     let mut name = None;
     let mut other_fields = Vec::new();
@@ -210,103 +276,195 @@ impl Parser {
       }
     }
 
-    Some(Parameter {
-      param_type: param_type?,
-      name: name?,
+    let param_type = param_type.ok_or_else(|| {
+      ParseError::new(
+        "Parameter is missing 'type' field",
+        TextRange {
+          start: TextPosition {
+            line: 0,
+            character: 0,
+          },
+          end: TextPosition {
+            line: 0,
+            character: 0,
+          },
+        },
+      )
+    })?;
+    let name = name.ok_or_else(|| {
+      ParseError::new(
+        "Parameter is missing 'name' field",
+        TextRange {
+          start: TextPosition {
+            line: 0,
+            character: 0,
+          },
+          end: TextPosition {
+            line: 0,
+            character: 0,
+          },
+        },
+      )
+    })?;
+
+    Ok(Parameter {
+      param_type,
+      name,
       other_fields,
     })
   }
 
-  fn parse_value(&mut self) -> Option<Value> {
-    let token = self.tokens.peek()?;
-    match token.token_type.as_str() {
-      "String" => {
-        let t = self.tokens.next()?;
+  fn parse_value(&mut self) -> Result<Value, ParseError> {
+    let token = match self.tokens.peek() {
+      Some(t) => t.clone(),
+      None => return Err(ParseError::at_eof("value")),
+    };
+    match token.token_type {
+      TokenType::String => {
+        let t = self
+          .tokens
+          .next()
+          .ok_or_else(|| ParseError::at_eof("string value"))?;
         self.last_token = Some(t.clone());
-        let s = t.value;
-        let s = s.strip_prefix('"')?.strip_suffix('"')?;
-        Some(Value::String(s.to_string()))
+        if !t.value.starts_with('"') || !t.value.ends_with('"') {
+          return Err(ParseError::at_token("Invalid string literal", &t));
+        }
+        let s = t.value[1..t.value.len() - 1].to_string();
+        Ok(Value::String(s))
       }
-      "Number" => {
-        let t = self.tokens.next()?;
+      TokenType::Number => {
+        let t = self
+          .tokens
+          .next()
+          .ok_or_else(|| ParseError::at_eof("number value"))?;
         self.last_token = Some(t.clone());
-        let n = t.value.parse().ok()?;
-        Some(Value::Number(n))
+        let n = t
+          .value
+          .parse()
+          .map_err(|_| ParseError::at_token("Invalid number", &t))?;
+        Ok(Value::Number(n))
       }
-      "True" => {
-        let t = self.tokens.next()?;
+      TokenType::True => {
+        let t = self
+          .tokens
+          .next()
+          .ok_or_else(|| ParseError::at_eof("boolean value"))?;
         self.last_token = Some(t);
-        Some(Value::Bool(true))
+        Ok(Value::Bool(true))
       }
-      "False" => {
-        let t = self.tokens.next()?;
+      TokenType::False => {
+        let t = self
+          .tokens
+          .next()
+          .ok_or_else(|| ParseError::at_eof("boolean value"))?;
         self.last_token = Some(t);
-        Some(Value::Bool(false))
+        Ok(Value::Bool(false))
       }
-      "Null" => {
-        let t = self.tokens.next()?;
+      TokenType::Null => {
+        let t = self
+          .tokens
+          .next()
+          .ok_or_else(|| ParseError::at_eof("null value"))?;
         self.last_token = Some(t);
-        Some(Value::Null)
+        Ok(Value::Null)
       }
-      "Identifier" | "Lit" | "Unlit" | "Float" | "Sampler2d" | "Back" | "None" | "Opaque"
-      | "Object" | "Uv0" | "Color" | "Position" | "Normal" => {
-        let t = self.tokens.next()?;
+      TokenType::Identifier
+      | TokenType::Lit
+      | TokenType::Unlit
+      | TokenType::Float
+      | TokenType::Sampler2d
+      | TokenType::Back
+      | TokenType::None
+      | TokenType::Opaque
+      | TokenType::Object
+      | TokenType::Uv0
+      | TokenType::Color
+      | TokenType::Position
+      | TokenType::Normal => {
+        let t = self
+          .tokens
+          .next()
+          .ok_or_else(|| ParseError::at_eof("identifier"))?;
         self.last_token = Some(t.clone());
-        Some(Value::Identifier(t.value))
+        Ok(Value::Identifier(t.value))
       }
-      "LBracket" => {
-        let t = self.tokens.next()?;
+      TokenType::LBracket => {
+        let t = self
+          .tokens
+          .next()
+          .ok_or_else(|| ParseError::at_eof("opening bracket"))?;
         self.last_token = Some(t);
         let mut arr = Vec::new();
         while let Some(t) = self.tokens.peek() {
           if t.is_type(&TokenType::RBracket) {
-            let t = self.tokens.next()?;
+            let t = self
+              .tokens
+              .next()
+              .ok_or_else(|| ParseError::at_eof("closing bracket"))?;
             self.last_token = Some(t);
             break;
           }
-          if let Some(val) = self.parse_value() {
+          if let Ok(val) = self.parse_value() {
             arr.push(val);
           }
           if let Some(t) = self.tokens.peek()
             && t.is_type(&TokenType::Comma)
           {
-            let t = self.tokens.next()?;
+            let t = self
+              .tokens
+              .next()
+              .ok_or_else(|| ParseError::at_eof("comma"))?;
             self.last_token = Some(t);
           }
         }
-        Some(Value::Array(arr))
+        Ok(Value::Array(arr))
       }
-      "LCurly" => {
-        let t = self.tokens.next()?;
+      TokenType::LCurly => {
+        let t = self
+          .tokens
+          .next()
+          .ok_or_else(|| ParseError::at_eof("opening brace"))?;
         self.last_token = Some(t);
         let mut obj = Vec::new();
         while let Some(t) = self.tokens.peek() {
           if t.is_type(&TokenType::RCurly) {
-            let t = self.tokens.next()?;
+            let t = self
+              .tokens
+              .next()
+              .ok_or_else(|| ParseError::at_eof("closing brace"))?;
             self.last_token = Some(t);
             break;
           }
-          if let Some(key) = self.parse_object_key() {
+          if let Ok(key) = self.parse_object_key() {
             self.expect(&TokenType::Colon);
-            if let Some(value) = self.parse_value() {
+            if let Ok(value) = self.parse_value() {
               obj.push((key, value));
             }
           }
           if let Some(t) = self.tokens.peek()
             && t.is_type(&TokenType::Comma)
           {
-            let t = self.tokens.next()?;
+            let t = self
+              .tokens
+              .next()
+              .ok_or_else(|| ParseError::at_eof("comma"))?;
             self.last_token = Some(t);
           }
         }
-        Some(Value::Object(obj))
+        Ok(Value::Object(obj))
       }
-      _ => None,
+      _ => Err(ParseError::at_token(
+        format!("Unexpected token: {}", token.value),
+        &token,
+      )),
     }
   }
 
-  fn parse_object_key(&mut self) -> Option<String> {
-    let token = self.tokens.peek()?;
+  fn parse_object_key(&mut self) -> Result<String, ParseError> {
+    let token = match self.tokens.peek() {
+      Some(t) => t.clone(),
+      None => return Err(ParseError::at_eof("object key")),
+    };
     if token.is_type(&TokenType::Identifier)
       || token.is_type(&TokenType::Type)
       || token.is_type(&TokenType::Parameters)
@@ -314,9 +472,13 @@ impl Parser {
       || token.is_type(&TokenType::Requires)
       || token.is_type(&TokenType::ShadingModel)
     {
-      return Some(self.tokens.next()?.value);
+      let t = self
+        .tokens
+        .next()
+        .ok_or_else(|| ParseError::at_eof("object key"))?;
+      return Ok(t.value);
     }
-    None
+    Err(ParseError::at_token("Expected object key", &token))
   }
 
   fn skip_to(&mut self, target: &TokenType) {
@@ -349,6 +511,6 @@ mod tests {
     let tokens = lexer.tokenize();
     let mut parser = Parser::new(tokens);
     let result = parser.parse_material();
-    assert!(result.is_some());
+    assert!(result.is_ok());
   }
 }
