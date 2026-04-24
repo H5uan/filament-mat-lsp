@@ -370,7 +370,7 @@ fn compute_diagnostics(text: &str) -> Vec<lsp_types::Diagnostic> {
 }
 
 fn publish_diagnostics(
-  uri: &Url,
+  uri: &Uri,
   diagnostics: Vec<lsp_types::Diagnostic>,
   server: &ServerState,
 ) -> Result<(), Box<dyn std::error::Error>> {
