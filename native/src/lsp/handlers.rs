@@ -156,11 +156,14 @@ fn detect_completion_context(
     let word = before[word_start..].trim();
 
     match word {
-      "shadingModel" => return InternalCompletionContext::ShadingModelValue,
-      "blending" => return InternalCompletionContext::BlendingValue,
       "requires" => return InternalCompletionContext::RequiresValue,
       "type" => return InternalCompletionContext::ParameterType,
-      _ => {}
+      _ => {
+        // Check if it's a known material property with enum values
+        if filament_mat_lsp::schema::get_enum_values(word).is_some() {
+          return InternalCompletionContext::PropertyValue(word.to_string());
+        }
+      }
     }
   }
 

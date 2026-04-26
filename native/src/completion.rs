@@ -1,4 +1,6 @@
-use std::sync::OnceLock;
+use crate::schema::{
+  KeywordType, PropertyDef, ValueType, get_enum_values, get_keywords_by_type, get_properties,
+};
 
 #[derive(Debug, Clone)]
 pub struct CompletionItem {
@@ -16,11 +18,10 @@ pub enum CompletionItemKind {
 
 pub struct CompletionEngine;
 
-static MATERIAL_PROPERTIES: OnceLock<Vec<CompletionItem>> = OnceLock::new();
-static SHADING_MODEL_VALUES: OnceLock<Vec<CompletionItem>> = OnceLock::new();
-static BLENDING_VALUES: OnceLock<Vec<CompletionItem>> = OnceLock::new();
-static PARAMETER_TYPES: OnceLock<Vec<CompletionItem>> = OnceLock::new();
-static REQUIRES_VALUES: OnceLock<Vec<CompletionItem>> = OnceLock::new();
+static MATERIAL_PROPERTIES: std::sync::OnceLock<Vec<CompletionItem>> = std::sync::OnceLock::new();
+static PARAMETER_TYPES: std::sync::OnceLock<Vec<CompletionItem>> = std::sync::OnceLock::new();
+static VERTEX_ATTRIBUTES: std::sync::OnceLock<Vec<CompletionItem>> = std::sync::OnceLock::new();
+static PARAMETER_FIELDS: std::sync::OnceLock<Vec<CompletionItem>> = std::sync::OnceLock::new();
 
 impl CompletionEngine {
   pub fn new() -> Self {
@@ -30,143 +31,113 @@ impl CompletionEngine {
   pub fn get_completions(&self, context: CompletionContext) -> Vec<CompletionItem> {
     match context {
       CompletionContext::MaterialBlock => Self::get_material_properties().clone(),
-      CompletionContext::ShadingModelValue => Self::get_shading_model_values().clone(),
-      CompletionContext::BlendingValue => Self::get_blending_values().clone(),
+      CompletionContext::PropertyValue(prop) => Self::get_property_values(&prop),
       CompletionContext::ParameterType => Self::get_parameter_types().clone(),
-      CompletionContext::RequiresValue => Self::get_requires_values().clone(),
+      CompletionContext::RequiresValue => Self::get_vertex_attributes().clone(),
+      CompletionContext::ParameterField => Self::get_parameter_fields().clone(),
     }
   }
 
   fn get_material_properties() -> &'static Vec<CompletionItem> {
     MATERIAL_PROPERTIES.get_or_init(|| {
-      vec![
-        Self::property("name", "Material name identifier"),
-        Self::property("shadingModel", "Shading model (lit/unlit/subsurface/etc)"),
-        Self::property("requires", "Required vertex attributes"),
-        Self::property("parameters", "Material parameters list"),
-        Self::property("constants", "Material constants"),
-        Self::property("culling", "Face culling (front/back/none)"),
-        Self::property("blending", "Blending mode"),
-        Self::property("vertexDomain", "Vertex domain (object/world/view/device)"),
-        Self::property("doubleSided", "Whether material is two-sided"),
-        Self::property("colorWrite", "Enable color write"),
-        Self::property("depthWrite", "Enable depth write"),
-      ]
+      get_properties()
+        .iter()
+        .map(|p| CompletionItem {
+          label: p.name.to_string(),
+          kind: CompletionItemKind::Property,
+          documentation: Some(format_documentation(p)),
+        })
+        .collect()
     })
   }
 
-  fn get_shading_model_values() -> &'static Vec<CompletionItem> {
-    SHADING_MODEL_VALUES.get_or_init(|| {
-      vec![
-        Self::enum_value("lit", "Standard PBR shading"),
-        Self::enum_value("unlit", "Unlit shading, no lighting"),
-        Self::enum_value("subsurface", "Subsurface scattering"),
-        Self::enum_value("cloth", "Cloth shading"),
-        Self::enum_value("specularGlossiness", "Specular-glossiness workflow"),
-      ]
-    })
-  }
-
-  fn get_blending_values() -> &'static Vec<CompletionItem> {
-    BLENDING_VALUES.get_or_init(|| {
-      vec![
-        Self::enum_value("opaque", "Opaque blending"),
-        Self::enum_value("transparent", "Alpha blending"),
-        Self::enum_value("fade", "Fade transparency"),
-        Self::enum_value("masked", "Alpha mask (binary)"),
-        Self::enum_value("add", "Additive blending"),
-        Self::enum_value("custom", "Custom blending"),
-      ]
-    })
+  fn get_property_values(property_name: &str) -> Vec<CompletionItem> {
+    if let Some(values) = get_enum_values(property_name) {
+      values
+        .iter()
+        .map(|v| CompletionItem {
+          label: v.to_string(),
+          kind: CompletionItemKind::EnumValue,
+          documentation: None,
+        })
+        .collect()
+    } else {
+      Vec::new()
+    }
   }
 
   fn get_parameter_types() -> &'static Vec<CompletionItem> {
     PARAMETER_TYPES.get_or_init(|| {
-      vec![
-        Self::param_type("bool", "Boolean value"),
-        Self::param_type("bool2", "2-component boolean vector"),
-        Self::param_type("bool3", "3-component boolean vector"),
-        Self::param_type("bool4", "4-component boolean vector"),
-        Self::param_type("int", "Integer value"),
-        Self::param_type("int2", "2-component integer vector"),
-        Self::param_type("int3", "3-component integer vector"),
-        Self::param_type("int4", "4-component integer vector"),
-        Self::param_type("uint", "Unsigned integer"),
-        Self::param_type("uint2", "2-component uint vector"),
-        Self::param_type("uint3", "3-component uint vector"),
-        Self::param_type("uint4", "4-component uint vector"),
-        Self::param_type("float", "Floating point value"),
-        Self::param_type("float2", "2-component float vector"),
-        Self::param_type("float3", "3-component float vector"),
-        Self::param_type("float4", "4-component float vector"),
-        Self::param_type("mat3", "3x3 matrix"),
-        Self::param_type("mat4", "4x4 matrix"),
-        Self::param_type("sampler2d", "2D texture sampler"),
-        Self::param_type("sampler3d", "3D texture sampler"),
-        Self::param_type("samplerCubemap", "Cube map sampler"),
-        Self::param_type("samplerExternal", "External image sampler"),
-      ]
+      get_keywords_by_type(KeywordType::ParameterType)
+        .iter()
+        .map(|kw| CompletionItem {
+          label: kw.to_string(),
+          kind: CompletionItemKind::Type,
+          documentation: None,
+        })
+        .collect()
     })
   }
 
-  fn get_requires_values() -> &'static Vec<CompletionItem> {
-    REQUIRES_VALUES.get_or_init(|| {
-      vec![
-        Self::enum_value("position", "Vertex position"),
-        Self::enum_value("normal", "Vertex normal"),
-        Self::enum_value("uv0", "UV coordinate set 0"),
-        Self::enum_value("uv1", "UV coordinate set 1"),
-        Self::enum_value("color", "Vertex color"),
-        Self::enum_value("tangents", "Tangent and bitangent"),
-        Self::enum_value("custom0", "Custom attribute 0"),
-        Self::enum_value("custom1", "Custom attribute 1"),
-        Self::enum_value("custom2", "Custom attribute 2"),
-        Self::enum_value("custom3", "Custom attribute 3"),
-        Self::enum_value("custom4", "Custom attribute 4"),
-        Self::enum_value("boneIndices", "Bone indices for skinning"),
-        Self::enum_value("boneWeights", "Bone weights for skinning"),
-      ]
+  fn get_vertex_attributes() -> &'static Vec<CompletionItem> {
+    VERTEX_ATTRIBUTES.get_or_init(|| {
+      get_keywords_by_type(KeywordType::VertexAttribute)
+        .iter()
+        .map(|kw| CompletionItem {
+          label: kw.to_string(),
+          kind: CompletionItemKind::EnumValue,
+          documentation: None,
+        })
+        .collect()
     })
   }
 
-  fn property(label: &str, docs: &str) -> CompletionItem {
-    CompletionItem {
-      label: label.to_string(),
-      kind: CompletionItemKind::Property,
-      documentation: Some(docs.to_string()),
-    }
-  }
-
-  fn enum_value(label: &str, docs: &str) -> CompletionItem {
-    CompletionItem {
-      label: label.to_string(),
-      kind: CompletionItemKind::EnumValue,
-      documentation: Some(docs.to_string()),
-    }
-  }
-
-  fn param_type(label: &str, docs: &str) -> CompletionItem {
-    CompletionItem {
-      label: label.to_string(),
-      kind: CompletionItemKind::Type,
-      documentation: Some(docs.to_string()),
-    }
+  fn get_parameter_fields() -> &'static Vec<CompletionItem> {
+    PARAMETER_FIELDS.get_or_init(|| {
+      get_keywords_by_type(KeywordType::ParameterField)
+        .iter()
+        .map(|kw| CompletionItem {
+          label: kw.to_string(),
+          kind: CompletionItemKind::Property,
+          documentation: None,
+        })
+        .collect()
+    })
   }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CompletionContext {
-  MaterialBlock,
-  ShadingModelValue,
-  BlendingValue,
-  ParameterType,
-  RequiresValue,
+fn format_documentation(prop: &PropertyDef) -> String {
+  let mut doc = prop.docs.to_string();
+  if let Some(values) = prop.valid_values {
+    doc.push_str("\n\nValues: ");
+    doc.push_str(&values.join(", "));
+  }
+  match prop.value_type {
+    ValueType::String => doc.push_str("\n\nType: string"),
+    ValueType::Number => doc.push_str("\n\nType: number"),
+    ValueType::Bool => doc.push_str("\n\nType: boolean"),
+    ValueType::Identifier => doc.push_str("\n\nType: identifier"),
+    ValueType::ArrayOfIdentifiers => doc.push_str("\n\nType: array of identifiers"),
+    ValueType::ArrayOfObjects => doc.push_str("\n\nType: array of objects"),
+    ValueType::ArrayOfStrings => doc.push_str("\n\nType: array of strings"),
+    ValueType::Object => doc.push_str("\n\nType: object"),
+  }
+  doc
 }
 
 impl Default for CompletionEngine {
   fn default() -> Self {
     Self::new()
   }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CompletionContext {
+  MaterialBlock,
+  PropertyValue(String),
+  ParameterType,
+  RequiresValue,
+  ParameterField,
 }
 
 #[cfg(test)]
@@ -178,5 +149,32 @@ mod tests {
     let engine = CompletionEngine::new();
     let completions = engine.get_completions(CompletionContext::MaterialBlock);
     assert!(!completions.is_empty());
+    assert!(completions.iter().any(|c| c.label == "shadingModel"));
+    assert!(completions.iter().any(|c| c.label == "blending"));
+  }
+
+  #[test]
+  fn test_get_property_values() {
+    let engine = CompletionEngine::new();
+    let completions =
+      engine.get_completions(CompletionContext::PropertyValue("shadingModel".to_string()));
+    assert!(completions.iter().any(|c| c.label == "lit"));
+    assert!(completions.iter().any(|c| c.label == "unlit"));
+  }
+
+  #[test]
+  fn test_get_parameter_types() {
+    let engine = CompletionEngine::new();
+    let completions = engine.get_completions(CompletionContext::ParameterType);
+    assert!(completions.iter().any(|c| c.label == "float4"));
+    assert!(completions.iter().any(|c| c.label == "sampler2d"));
+  }
+
+  #[test]
+  fn test_get_vertex_attributes() {
+    let engine = CompletionEngine::new();
+    let completions = engine.get_completions(CompletionContext::RequiresValue);
+    assert!(completions.iter().any(|c| c.label == "position"));
+    assert!(completions.iter().any(|c| c.label == "uv0"));
   }
 }
