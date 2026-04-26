@@ -1,1 +1,1 @@
-{"root":["./client/src/download.ts","./client/src/extension.ts"],"version":"5.9.3"}
+{"root":["./client/src/download.ts","./client/src/extension.ts","./client/src/test/runtest.ts","./client/src/test/suite/extension.test.ts","./client/src/test/suite/index.ts"],"version":"6.0.3"}
