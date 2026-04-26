@@ -3,3 +3,4 @@
 *.ts text eol=lf
 *.json text eol=lf
 *.yml text eol=lf
+*.mat text eol=lf
