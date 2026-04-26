@@ -31,6 +31,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
       work_done_progress_options: WorkDoneProgressOptions::default(),
     })),
     code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
+    semantic_tokens_provider: Some(SemanticTokensServerCapabilities::SemanticTokensOptions(
+      SemanticTokensOptions {
+        work_done_progress_options: WorkDoneProgressOptions::default(),
+        legend: SemanticTokensLegend {
+          token_types: lsp::semantic_tokens::token_types()
+            .into_iter()
+            .map(SemanticTokenType::new)
+            .collect(),
+          token_modifiers: vec![],
+        },
+        range: Some(false),
+        full: Some(SemanticTokensFullOptions::Delta { delta: Some(false) }),
+      },
+    )),
+    document_formatting_provider: Some(OneOf::Left(true)),
     ..Default::default()
   })?;
 

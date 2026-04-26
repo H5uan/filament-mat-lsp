@@ -72,6 +72,16 @@ pub fn handle_request(
       let actions = handle_code_action(server, params);
       send_response(sender, req.id, actions)?;
     }
+    "textDocument/semanticTokens/full" => {
+      let params: SemanticTokensParams = serde_json::from_value(req.params)?;
+      let tokens = handle_semantic_tokens(server, params);
+      send_response(sender, req.id, tokens)?;
+    }
+    "textDocument/formatting" => {
+      let params: DocumentFormattingParams = serde_json::from_value(req.params)?;
+      let edits = handle_formatting(server, params);
+      send_response(sender, req.id, edits)?;
+    }
     _ => {
       send_error(
         sender,
@@ -371,6 +381,111 @@ fn handle_code_action(
   } else {
     Some(actions)
   }
+}
+
+fn handle_semantic_tokens(
+  server: &ServerState,
+  params: SemanticTokensParams,
+) -> Option<SemanticTokensResult> {
+  let uri = &params.text_document.uri;
+  let doc = server.get_document(uri)?;
+  let data = super::semantic_tokens::generate_semantic_tokens(&doc.text);
+  Some(SemanticTokensResult::Tokens(SemanticTokens {
+    result_id: None,
+    data,
+  }))
+}
+
+fn handle_formatting(
+  server: &ServerState,
+  params: DocumentFormattingParams,
+) -> Option<Vec<TextEdit>> {
+  let uri = &params.text_document.uri;
+  let doc = server.get_document(uri)?;
+  let formatted = format_mat_text(&doc.text);
+  if formatted == doc.text {
+    return Some(Vec::new());
+  }
+  Some(vec![TextEdit {
+    range: Range {
+      start: Position {
+        line: 0,
+        character: 0,
+      },
+      end: Position {
+        line: u32::MAX,
+        character: u32::MAX,
+      },
+    },
+    new_text: formatted,
+  }])
+}
+
+fn format_mat_text(text: &str) -> String {
+  let mut result = String::new();
+  let mut indent_level = 0usize;
+  let mut in_glsl = false;
+
+  for line in text.lines() {
+    let trimmed = line.trim();
+
+    // Skip empty lines
+    if trimmed.is_empty() {
+      result.push('\n');
+      continue;
+    }
+
+    // Detect shader block start/end for GLSL passthrough
+    if trimmed.starts_with("vertex ")
+      || trimmed.starts_with("fragment ")
+      || trimmed.starts_with("compute ")
+      || trimmed.starts_with("tool ")
+    {
+      in_glsl = true;
+    }
+    if trimmed == "}" && in_glsl {
+      in_glsl = false;
+    }
+
+    if in_glsl
+      && !trimmed.starts_with("material ")
+      && !trimmed.starts_with("vertex ")
+      && !trimmed.starts_with("fragment ")
+      && !trimmed.starts_with("compute ")
+      && !trimmed.starts_with("tool ")
+    {
+      // Preserve GLSL code as-is
+      result.push_str(line);
+      result.push('\n');
+      continue;
+    }
+
+    // Decrease indent before closing brace
+    if trimmed.starts_with('}') {
+      indent_level = indent_level.saturating_sub(1);
+    }
+
+    // Add indentation
+    for _ in 0..indent_level {
+      result.push_str("    ");
+    }
+
+    // Add content
+    result.push_str(trimmed);
+    result.push('\n');
+
+    // Increase indent after opening brace
+    if trimmed.ends_with('{') {
+      indent_level += 1;
+    }
+
+    // Decrease indent for lone closing braces
+    if trimmed == "}" {
+      indent_level = indent_level.saturating_sub(1);
+    }
+  }
+
+  result
 }
 
 fn handle_diagnostic(
