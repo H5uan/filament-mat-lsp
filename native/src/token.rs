@@ -7,46 +7,64 @@ pub enum TokenType {
   Vertex,
   Fragment,
   Compute,
+  Tool,
 
   // Material properties
   Name,
+  ApiLevel,
+  FeatureLevel,
   ShadingModel,
+  Domain,
+  Interpolation,
+  Quality,
   Requires,
+  Parameters,
+  Constants,
+  Variables,
+  Buffers,
+  Subpasses,
+  Outputs,
   Culling,
   Blending,
+  BlendFunction,
+  PostLightingBlending,
+  Transparency,
   MaskThreshold,
   AlphaToCoverage,
   VertexDomain,
+  VertexDomainDeviceJittered,
   MaterialDomain,
-  Interpolation,
   DoubleSided,
   ColorWrite,
   DepthWrite,
+  DepthCulling,
   DepthTest,
   Instanced,
   RefractionMode,
   RefractionType,
+  Reflections,
   ReflectionMode,
-  TransparencyMode,
   ShadowMultiplier,
+  TransparentShadow,
+  ClearCoatIorChange,
+  MultiBounceAmbientOcclusion,
+  SpecularAmbientOcclusion,
   SpecularAntiAliasing,
   SpecularAntiAliasingVariance,
   SpecularAntiAliasingThreshold,
-  ClearCoatIorChange,
+  CustomSurfaceShading,
   FlipUv,
   LinearFog,
-  MultiBounceAmbientOcclusion,
-  SpecularAmbientOcclusion,
-  CustomSurfaceShading,
+  ShadowFarAttenuation,
+  FramebufferFetch,
+  LegacyMorphing,
+  UseDefaultDepthVariant,
+  VariantFilter,
+  GroupSize,
   StereoscopicType,
   StereoscopicEyeCount,
-  GroupSize,
-  VariantFilter,
-  Parameters,
-  Constants,
-  Variables,
 
-  // Property names
+  // Property names (parameter/constant/output fields)
   Type,
   Precision,
   Format,
@@ -55,6 +73,10 @@ pub enum TokenType {
   TransformName,
   Stages,
   Default,
+  Qualifiers,
+  Fields,
+  Target,
+  Location,
 
   // Enums - shading model
   Lit,
@@ -66,6 +88,7 @@ pub enum TokenType {
   // Enums - culling
   Front,
   Back,
+  FrontAndBack,
   None,
 
   // Enums - blending
@@ -74,6 +97,8 @@ pub enum TokenType {
   Fade,
   Masked,
   Add,
+  Multiply,
+  Screen,
   Custom,
 
   // Enums - vertex domain
@@ -99,8 +124,48 @@ pub enum TokenType {
   Thin,
 
   // Enums - transparency mode
+  // Default already defined above
   TwoPassesOneSide,
   TwoPassesTwoSides,
+
+  // Enums - stereoscopic type
+  // Instanced already defined above
+  Multiview,
+
+  // Enums - quality / precision
+  Low,
+  Medium,
+  High,
+
+  // Enums - specular ambient occlusion
+  Simple,
+  BentNormals,
+
+  // Enums - sampler format
+  Shadow,
+
+  // Enums - blend functions
+  Zero,
+  One,
+  SrcColor,
+  OneMinusSrcColor,
+  DstColor,
+  OneMinusDstColor,
+  SrcAlpha,
+  OneMinusSrcAlpha,
+  DstAlpha,
+  OneMinusDstAlpha,
+  SrcAlphaSaturate,
+
+  // Enums - variant filter
+  DirectionalLighting,
+  DynamicLighting,
+  ShadowReceiver,
+  Skinning,
+  Fog,
+  Vsm,
+  Ssr,
+  Stereo,
 
   // Enums - vertex attributes
   Position,
@@ -114,6 +179,9 @@ pub enum TokenType {
   Custom2,
   Custom3,
   Custom4,
+  Custom5,
+  Custom6,
+  Custom7,
   BoneIndices,
   BoneWeights,
 
@@ -136,10 +204,15 @@ pub enum TokenType {
   Float4,
   Mat3,
   Mat4,
+  Float3x3,
+  Float4x4,
   Sampler2d,
+  Sampler2dArray,
   Sampler3d,
   SamplerCubemap,
   SamplerExternal,
+  SamplerCubemapArray,
+  SubpassInput,
 
   // Literals
   True,

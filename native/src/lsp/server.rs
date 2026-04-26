@@ -148,10 +148,10 @@ impl ServerState {
   }
 
   fn parse_text(&self, text: &str) -> Result<Material, ParseError> {
-    use filament_mat_lsp::lexer::JsonishLexer;
+    use filament_mat_lsp::lexer::Lexer;
     use filament_mat_lsp::parser::Parser;
 
-    let mut lexer = JsonishLexer::new(text);
+    let mut lexer = Lexer::new(text);
     let tokens = lexer.tokenize();
     let mut parser = Parser::new(tokens);
     parser.parse_material()
