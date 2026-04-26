@@ -82,6 +82,21 @@ pub fn handle_request(
       let edits = handle_formatting(server, params);
       send_response(sender, req.id, edits)?;
     }
+    "workspace/symbol" => {
+      let params: WorkspaceSymbolParams = serde_json::from_value(req.params)?;
+      let symbols = handle_workspace_symbol(server, params);
+      send_response(sender, req.id, symbols)?;
+    }
+    "textDocument/rename" => {
+      let params: RenameParams = serde_json::from_value(req.params)?;
+      let edit = handle_rename(server, params);
+      send_response(sender, req.id, edit)?;
+    }
+    "textDocument/prepareRename" => {
+      let params: TextDocumentPositionParams = serde_json::from_value(req.params)?;
+      let range = handle_prepare_rename(server, params);
+      send_response(sender, req.id, range)?;
+    }
     _ => {
       send_error(
         sender,
@@ -607,4 +622,184 @@ fn publish_diagnostics(
   };
   server.send(notification.into())?;
   Ok(())
+}
+
+#[allow(deprecated)]
+fn handle_workspace_symbol(
+  server: &mut ServerState,
+  _params: WorkspaceSymbolParams,
+) -> Option<Vec<SymbolInformation>> {
+  let mut symbols = Vec::new();
+
+  // Collect URIs first to avoid borrow issues
+  let uris: Vec<Uri> = server.documents.keys().cloned().collect();
+
+  // Collect from all open documents
+  for uri in uris {
+    if let Some(Ok(material)) = server.parse_document(&uri) {
+      let name = material
+        .name
+        .as_ref()
+        .map(|n| n.value.clone())
+        .unwrap_or_else(|| "Material".to_string());
+      let range = conv::to_lsp_range(&material.range);
+
+      symbols.push(SymbolInformation {
+        name,
+        kind: SymbolKind::OBJECT,
+        location: Location { uri, range },
+        container_name: None,
+        deprecated: None,
+        tags: None,
+      });
+    }
+  }
+
+  if symbols.is_empty() {
+    None
+  } else {
+    Some(symbols)
+  }
+}
+
+fn handle_prepare_rename(
+  server: &mut ServerState,
+  params: TextDocumentPositionParams,
+) -> Option<PrepareRenameResponse> {
+  let uri = &params.text_document.uri;
+  let position = params.position;
+
+  let material = match server.parse_document(uri)? {
+    Ok(m) => m,
+    Err(_) => return None,
+  };
+
+  // Check if position is on a parameter name
+  for param in &material.parameters {
+    let range = conv::to_lsp_range(&param.range);
+    if position_in_range(position, range) {
+      return Some(PrepareRenameResponse::Range(range));
+    }
+  }
+
+  None
+}
+
+fn position_in_range(position: Position, range: Range) -> bool {
+  (position.line > range.start.line
+    || (position.line == range.start.line && position.character >= range.start.character))
+    && (position.line < range.end.line
+      || (position.line == range.end.line && position.character <= range.end.character))
+}
+
+#[allow(clippy::mutable_key_type)]
+fn handle_rename(server: &mut ServerState, params: RenameParams) -> Option<WorkspaceEdit> {
+  let uri = &params.text_document_position.text_document.uri;
+  let position = params.text_document_position.position;
+  let new_name = &params.new_name;
+
+  let matfile = server.parse_full_document(uri)?;
+
+  let material = matfile.material;
+  let mut changes: std::collections::HashMap<Uri, Vec<TextEdit>> = std::collections::HashMap::new();
+  let mut edits = Vec::new();
+
+  // Find which parameter is being renamed
+  let mut target_param: Option<&filament_mat_lsp::parser::Parameter> = None;
+  for param in &material.parameters {
+    let range = conv::to_lsp_range(&param.range);
+    if position_in_range(position, range) {
+      target_param = Some(param);
+      break;
+    }
+  }
+
+  let target_param = target_param?;
+  let old_name = &target_param.name;
+
+  // Edit 1: parameter definition name field
+  // We need to find the exact position of the name value inside the parameter object
+  // Since we don't have sub-ranges, we'll search in the parameter range text
+  if let Some(doc) = server.get_document(uri) {
+    let param_range = &target_param.range;
+    let param_text = &doc.text[param_range.start.line as usize..param_range.end.line as usize + 1];
+
+    // Simple text search for name value
+    let search_pattern = format!("name : {}", old_name);
+    if let Some(idx) = param_text.find(&search_pattern) {
+      let start_char = idx as u32 + 7; // skip "name : "
+      let end_char = start_char + old_name.len() as u32;
+      edits.push(TextEdit {
+        range: Range {
+          start: Position {
+            line: param_range.start.line,
+            character: start_char,
+          },
+          end: Position {
+            line: param_range.start.line,
+            character: end_char,
+          },
+        },
+        new_text: new_name.clone(),
+      });
+    }
+  }
+
+  // Edit 2: shader references materialParams_xxx and materialParams.xxx
+  for shader in &matfile.shaders {
+    let search_old = format!("materialParams_{}", old_name);
+    let search_dot = format!("materialParams.{}", old_name);
+    let replace_old = format!("materialParams_{}", new_name);
+    let replace_dot = format!("materialParams.{}", new_name);
+
+    // Find all occurrences in shader code
+    let mut offset = 0usize;
+    while let Some(idx) = shader.code[offset..].find(&search_old) {
+      let abs_idx = offset + idx;
+      edits.push(TextEdit {
+        range: Range {
+          start: Position {
+            line: shader.range.start.line + 1, // approximate
+            character: abs_idx as u32,
+          },
+          end: Position {
+            line: shader.range.start.line + 1,
+            character: (abs_idx + search_old.len()) as u32,
+          },
+        },
+        new_text: replace_old.clone(),
+      });
+      offset = abs_idx + search_old.len();
+    }
+
+    offset = 0;
+    while let Some(idx) = shader.code[offset..].find(&search_dot) {
+      let abs_idx = offset + idx;
+      edits.push(TextEdit {
+        range: Range {
+          start: Position {
+            line: shader.range.start.line + 1,
+            character: abs_idx as u32,
+          },
+          end: Position {
+            line: shader.range.start.line + 1,
+            character: (abs_idx + search_dot.len()) as u32,
+          },
+        },
+        new_text: replace_dot.clone(),
+      });
+      offset = abs_idx + search_dot.len();
+    }
+  }
+
+  if edits.is_empty() {
+    return None;
+  }
+
+  changes.insert(uri.clone(), edits);
+  Some(WorkspaceEdit {
+    changes: Some(changes),
+    document_changes: None,
+    change_annotations: None,
+  })
 }

@@ -46,6 +46,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
       },
     )),
     document_formatting_provider: Some(OneOf::Left(true)),
+    workspace_symbol_provider: Some(OneOf::Left(true)),
+    rename_provider: Some(OneOf::Right(RenameOptions {
+      prepare_provider: Some(true),
+      work_done_progress_options: WorkDoneProgressOptions::default(),
+    })),
     ..Default::default()
   })?;
 

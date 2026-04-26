@@ -147,6 +147,12 @@ impl ServerState {
     Some(result)
   }
 
+  pub fn parse_full_document(&mut self, uri: &Uri) -> Option<filament_mat_lsp::parser::MatFile> {
+    let doc = self.documents.get(uri)?;
+    let text = doc.text.clone();
+    Some(self.parse_full_text(&text))
+  }
+
   fn parse_text(&self, text: &str) -> Result<Material, ParseError> {
     use filament_mat_lsp::lexer::Lexer;
     use filament_mat_lsp::parser::Parser;
@@ -155,6 +161,16 @@ impl ServerState {
     let tokens = lexer.tokenize();
     let mut parser = Parser::new(tokens);
     parser.parse_material()
+  }
+
+  fn parse_full_text(&self, text: &str) -> filament_mat_lsp::parser::MatFile {
+    use filament_mat_lsp::lexer::Lexer;
+    use filament_mat_lsp::parser::Parser;
+
+    let mut lexer = Lexer::new(text);
+    let tokens = lexer.tokenize();
+    let mut parser = Parser::new(tokens);
+    parser.parse()
   }
 }
 

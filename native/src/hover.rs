@@ -66,6 +66,44 @@ impl HoverEngine {
       );
       Self::add_enum_docs(&mut docs, KeywordType::ParameterType, "Parameter type");
 
+      // Filament Shader API
+      docs.insert(
+        "MaterialInputs".to_string(),
+        "Filament shader input struct. Contains fields like baseColor, roughness, metallic, normal, etc.".to_string(),
+      );
+      docs.insert(
+        "MaterialVertexInputs".to_string(),
+        "Filament vertex shader input struct. Contains vertex attributes passed to the fragment shader.".to_string(),
+      );
+      docs.insert(
+        "materialParams".to_string(),
+        "Runtime material parameter block. Access parameters defined in the material block using materialParams.name.".to_string(),
+      );
+      docs.insert(
+        "prepareMaterial".to_string(),
+        "Filament built-in function. Must be called before modifying MaterialInputs in the fragment shader.".to_string(),
+      );
+      docs.insert(
+        "getUV0".to_string(),
+        "Returns the first UV coordinate set (uv0) for the current fragment.".to_string(),
+      );
+      docs.insert(
+        "getUV1".to_string(),
+        "Returns the second UV coordinate set (uv1) for the current fragment.".to_string(),
+      );
+      docs.insert(
+        "getWorldPosition".to_string(),
+        "Returns the world-space position of the current fragment.".to_string(),
+      );
+      docs.insert(
+        "getWorldNormal".to_string(),
+        "Returns the world-space normal of the current fragment.".to_string(),
+      );
+      docs.insert(
+        "texture".to_string(),
+        "GLSL built-in function for sampling textures.".to_string(),
+      );
+
       docs
     })
   }
