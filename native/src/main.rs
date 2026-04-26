@@ -30,6 +30,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
       workspace_diagnostics: false,
       work_done_progress_options: WorkDoneProgressOptions::default(),
     })),
+    code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
     ..Default::default()
   })?;
 

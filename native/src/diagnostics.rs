@@ -227,6 +227,7 @@ mod tests {
       name: "test".to_string(),
       param_type: "invalidType".to_string(),
       other_fields: vec![],
+      range: dummy_range(),
     };
 
     let validator = Validator::new();

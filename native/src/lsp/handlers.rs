@@ -67,6 +67,11 @@ pub fn handle_request(
       let diagnostics = handle_diagnostic(server, params);
       send_response(sender, req.id, diagnostics)?;
     }
+    "textDocument/codeAction" => {
+      let params: CodeActionParams = serde_json::from_value(req.params)?;
+      let actions = handle_code_action(server, params);
+      send_response(sender, req.id, actions)?;
+    }
     _ => {
       send_error(
         sender,
@@ -264,8 +269,10 @@ fn handle_definition(
   // Check parameters
   for param in &material.parameters {
     if param.name == word {
-      // For parameters, we don't have position info yet, so return None
-      // This is a simplified implementation
+      locations.push(Location {
+        uri: uri.clone(),
+        range: conv::to_lsp_range(&param.range),
+      });
     }
   }
 
@@ -273,6 +280,96 @@ fn handle_definition(
     None
   } else {
     Some(GotoDefinitionResponse::Array(locations))
+  }
+}
+
+#[allow(clippy::mutable_key_type)]
+fn handle_code_action(
+  server: &mut ServerState,
+  params: CodeActionParams,
+) -> Option<Vec<CodeActionOrCommand>> {
+  let uri = &params.text_document.uri;
+  let material = match server.parse_document(uri)? {
+    Ok(m) => m,
+    Err(_) => return None,
+  };
+
+  let mut actions = Vec::new();
+
+  // Check for missing name
+  if material.name.is_none() {
+    let insert_pos = Position {
+      line: material.range.start.line,
+      character: material.range.start.character + 1,
+    };
+    actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+      title: "Add missing 'name' property".to_string(),
+      kind: Some(CodeActionKind::QUICKFIX),
+      diagnostics: None,
+      disabled: None,
+      edit: Some(WorkspaceEdit {
+        changes: Some({
+          let mut map = std::collections::HashMap::new();
+          map.insert(
+            uri.clone(),
+            vec![TextEdit {
+              range: Range {
+                start: insert_pos,
+                end: insert_pos,
+              },
+              new_text: "\n    name : MyMaterial,".to_string(),
+            }],
+          );
+          map
+        }),
+        document_changes: None,
+        change_annotations: None,
+      }),
+      command: None,
+      is_preferred: Some(true),
+      data: None,
+    }));
+  }
+
+  // Check for missing shadingModel
+  if material.shading_model.is_none() {
+    let insert_pos = Position {
+      line: material.range.start.line,
+      character: material.range.start.character + 1,
+    };
+    actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+      title: "Add missing 'shadingModel' property".to_string(),
+      kind: Some(CodeActionKind::QUICKFIX),
+      diagnostics: None,
+      disabled: None,
+      edit: Some(WorkspaceEdit {
+        changes: Some({
+          let mut map = std::collections::HashMap::new();
+          map.insert(
+            uri.clone(),
+            vec![TextEdit {
+              range: Range {
+                start: insert_pos,
+                end: insert_pos,
+              },
+              new_text: "\n    shadingModel : lit,".to_string(),
+            }],
+          );
+          map
+        }),
+        document_changes: None,
+        change_annotations: None,
+      }),
+      command: None,
+      is_preferred: Some(true),
+      data: None,
+    }));
+  }
+
+  if actions.is_empty() {
+    None
+  } else {
+    Some(actions)
   }
 }
 
@@ -331,32 +428,15 @@ fn handle_document_symbol(
 
   // Add parameter symbols
   for param in &material.parameters {
+    let param_range = conv::to_lsp_range(&param.range);
     let param_symbol = DocumentSymbol {
       name: param.name.clone(),
       detail: Some(format!("type: {}", param.param_type)),
       kind: SymbolKind::PROPERTY,
       tags: None,
       deprecated: None,
-      range: Range {
-        start: Position {
-          line: 0,
-          character: 0,
-        },
-        end: Position {
-          line: 0,
-          character: 0,
-        },
-      },
-      selection_range: Range {
-        start: Position {
-          line: 0,
-          character: 0,
-        },
-        end: Position {
-          line: 0,
-          character: 0,
-        },
-      },
+      range: param_range,
+      selection_range: param_range,
       children: None,
     };
     symbols.push(param_symbol);

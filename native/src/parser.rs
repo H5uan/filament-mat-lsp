@@ -75,6 +75,7 @@ pub struct Parameter {
   pub param_type: String,
   pub name: String,
   pub other_fields: Vec<(String, Value)>,
+  pub range: TextRange,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -248,12 +249,51 @@ impl Parser {
             .next()
             .ok_or_else(|| ParseError::at_eof("parameters property"))?;
           self.expect(&TokenType::Colon);
-          if let Ok(Value::Array(arr)) = self.parse_value() {
-            for item in arr {
-              if let Value::Object(props) = item
-                && let Ok(param) = Self::parse_parameter(props)
+          // Expect '['
+          if let Some(token) = self.tokens.peek()
+            && token.is_type(&TokenType::LBracket)
+          {
+            self.tokens.next(); // consume '['
+            while let Some(token) = self.tokens.peek() {
+              if token.is_type(&TokenType::RBracket) {
+                self.tokens.next(); // consume ']'
+                break;
+              }
+              if token.is_type(&TokenType::LCurly) {
+                let start_token = self.tokens.next().unwrap(); // consume '{'
+                let mut props = Vec::new();
+                let mut end_token = start_token.clone();
+                while let Some(t) = self.tokens.peek() {
+                  if t.is_type(&TokenType::RCurly) {
+                    end_token = self.tokens.next().unwrap();
+                    break;
+                  }
+                  if let Ok(key) = self.parse_object_key() {
+                    self.expect(&TokenType::Colon);
+                    if let Ok(value) = self.parse_value() {
+                      props.push((key, value));
+                    }
+                  } else {
+                    // Error recovery
+                    if let Some(t) = self.tokens.next() {
+                      self.last_token = Some(t);
+                    }
+                  }
+                  if let Some(t) = self.tokens.peek()
+                    && t.is_type(&TokenType::Comma)
+                  {
+                    self.tokens.next();
+                  }
+                }
+                let range = Self::make_range(&start_token, &end_token);
+                if let Ok(param) = self.parse_parameter_from_props(props, range) {
+                  material.parameters.push(param);
+                }
+              }
+              if let Some(t) = self.tokens.peek()
+                && t.is_type(&TokenType::Comma)
               {
-                material.parameters.push(param);
+                self.tokens.next();
               }
             }
           }
@@ -504,7 +544,11 @@ impl Parser {
     }
   }
 
-  fn parse_parameter(mut props: Vec<(String, Value)>) -> Result<Parameter, ParseError> {
+  fn parse_parameter_from_props(
+    &mut self,
+    mut props: Vec<(String, Value)>,
+    range: TextRange,
+  ) -> Result<Parameter, ParseError> {
     let mut param_type = None;
     let mut name = None;
     let mut other_fields = Vec::new();
@@ -560,6 +604,7 @@ impl Parser {
       param_type,
       name,
       other_fields,
+      range,
     })
   }
 
