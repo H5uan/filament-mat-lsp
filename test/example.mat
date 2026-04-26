@@ -1,24 +1,24 @@
 // Example Filament Material File
 
 material {
-    name: ExampleMaterial,
-    shadingModel: lit,
-    requires: [position, normal, uv0],
+    name : ExampleMaterial,
+    shadingModel : lit,
+    requires : [position, normal, uv0],
 
-    parameters: [
-        { type: float4, name: baseColor },
-        { type: float, name: roughness },
-        { type: float, name: metallic },
-        { type: sampler2d, name: baseColorMap },
-        { type: sampler2d, name: roughnessMap },
-        { type: sampler2d, name: normalMap },
+    parameters : [
+        { type : float4, name : baseColor },
+        { type : float, name : roughness },
+        { type : float, name : metallic },
+        { type : sampler2d, name : baseColorMap },
+        { type : sampler2d, name : roughnessMap },
+        { type : sampler2d, name : normalMap },
     ],
 
-    blending: opaque,
-    culling: back,
-    doubleSided: false,
-    colorWrite: true,
-    depthWrite: true,
+    blending : opaque,
+    culling : back,
+    doubleSided : false,
+    colorWrite : true,
+    depthWrite : true,
 }
 
 vertex {

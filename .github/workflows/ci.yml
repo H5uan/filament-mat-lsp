@@ -26,6 +26,8 @@ jobs:
           components: rustfmt, clippy
       - name: Cache
         uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native
       - name: Check format
         run: cargo fmt --all -- --check
       - name: Clippy
@@ -80,6 +82,8 @@ jobs:
           targets: ${{ matrix.target }}
       - name: Cache
         uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native
       - name: Build release binary
         working-directory: native
         run: cargo build --release --target ${{ matrix.target }}
