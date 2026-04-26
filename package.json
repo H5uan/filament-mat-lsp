@@ -34,7 +34,38 @@
                 "scopeName": "source.filament-mat",
                 "path": "./syntaxes/filament-mat.tmLanguage.json"
             }
-        ]
+        ],
+        "commands": [
+            {
+                "command": "filamentMat.compile",
+                "title": "Compile Material",
+                "category": "Filament Material"
+            },
+            {
+                "command": "filamentMat.showDocumentation",
+                "title": "Show Documentation",
+                "category": "Filament Material"
+            }
+        ],
+        "menus": {
+            "editor/context": [
+                {
+                    "command": "filamentMat.compile",
+                    "when": "editorLangId == filament-mat",
+                    "group": " Filament@1"
+                }
+            ]
+        },
+        "configuration": {
+            "title": "Filament Material",
+            "properties": {
+                "filamentMat.matcPath": {
+                    "type": "string",
+                    "default": "matc",
+                    "description": "Path to the Filament material compiler (matc)"
+                }
+            }
+        }
     },
     "scripts": {
         "vscode:prepublish": "npm run compile:rust && npm run compile:ts",

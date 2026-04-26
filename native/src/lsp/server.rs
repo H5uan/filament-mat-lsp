@@ -2,8 +2,11 @@ use crossbeam_channel::Sender;
 use lsp_server::Message;
 use lsp_types::Uri;
 use std::collections::HashMap;
+use std::time::Instant;
 
+use filament_mat_lsp::block_cache::BlockCacheManager;
 use filament_mat_lsp::parser::{Material, ParseError};
+use lsp_types::SemanticToken;
 
 #[derive(Debug, Clone)]
 pub struct Document {
@@ -72,10 +75,25 @@ fn compute_line_offsets(text: &str) -> Vec<usize> {
   offsets
 }
 
+/// Cache entry for semantic tokens.
+#[derive(Debug, Clone)]
+pub struct SemanticTokensCache {
+  pub version: i32,
+  pub result_id: String,
+  pub data: Vec<SemanticToken>,
+}
+
 pub struct ServerState {
   pub documents: HashMap<Uri, Document>,
   sender: Sender<Message>,
-  ast_cache: HashMap<Uri, (i32, Result<Material, ParseError>)>,
+  /// Block-level cache for parsed ASTs.
+  block_cache_manager: BlockCacheManager,
+  /// Cache for semantic tokens to support incremental updates.
+  semantic_tokens_cache: HashMap<Uri, SemanticTokensCache>,
+  /// Documents with pending diagnostic computation.
+  /// Key: document URI
+  /// Value: (version, last_change_instant)
+  pub pending_diagnostics: HashMap<Uri, (i32, Instant)>,
 }
 
 impl ServerState {
@@ -83,7 +101,9 @@ impl ServerState {
     Self {
       documents: HashMap::new(),
       sender,
-      ast_cache: HashMap::new(),
+      block_cache_manager: BlockCacheManager::new(),
+      semantic_tokens_cache: HashMap::new(),
+      pending_diagnostics: HashMap::new(),
     }
   }
 
@@ -97,7 +117,7 @@ impl ServerState {
 
   pub fn remove_document(&mut self, uri: &Uri) {
     self.documents.remove(uri);
-    self.ast_cache.remove(uri);
+    self.block_cache_manager.remove(uri);
   }
 
   pub fn apply_change(
@@ -107,6 +127,9 @@ impl ServerState {
     version: i32,
   ) {
     if let Some(doc) = self.documents.get_mut(uri) {
+      let change_start_line: u32;
+      let change_end_line: u32;
+
       if let Some(range) = change.range {
         // Incremental change
         let start_offset = doc.position_to_offset(range.start);
@@ -115,13 +138,22 @@ impl ServerState {
         new_text.push_str(&change.text);
         new_text.push_str(&doc.text[end_offset..]);
         doc.text = new_text;
+
+        change_start_line = range.start.line;
+        change_end_line = range.end.line;
       } else {
         // Full document replacement
         doc.text = change.text;
+        change_start_line = 0;
+        change_end_line = u32::MAX;
       }
       doc.version = version;
       doc.recompute_offsets();
-      self.ast_cache.remove(uri);
+
+      // Block-level cache invalidation
+      self
+        .block_cache_manager
+        .handle_change(uri, version, change_start_line, change_end_line);
     }
   }
 
@@ -133,24 +165,48 @@ impl ServerState {
     let doc = self.documents.get(uri)?;
     let version = doc.version;
 
-    if let Some((cached_version, cached_ast)) = self.ast_cache.get(uri)
-      && *cached_version == version
+    // Try block cache first
+    if let Some(cache) = self.block_cache_manager.get(uri)
+      && cache.version == version
+      && cache.material_valid
     {
-      return Some(cached_ast.clone());
+      return cache.material.as_ref().ok().map(|m| Ok(m.clone()));
     }
 
+    // Fall back to full re-parse
     let text = doc.text.clone();
     let result = self.parse_text(&text);
-    self
-      .ast_cache
-      .insert(uri.clone(), (version, result.clone()));
+
+    // Update block cache
+    let matfile = self.parse_full_text(&text);
+    let block_cache = filament_mat_lsp::block_cache::BlockCache::from_matfile(version, matfile);
+    self.block_cache_manager.insert(uri.clone(), block_cache);
+
     Some(result)
   }
 
   pub fn parse_full_document(&mut self, uri: &Uri) -> Option<filament_mat_lsp::parser::MatFile> {
     let doc = self.documents.get(uri)?;
+    let version = doc.version;
+
+    // Try block cache first
+    if let Some(cache) = self.block_cache_manager.get(uri)
+      && cache.version == version
+      && cache.is_fully_valid()
+    {
+      return cache.to_matfile();
+    }
+
+    // Fall back to full re-parse
     let text = doc.text.clone();
-    Some(self.parse_full_text(&text))
+    let matfile = self.parse_full_text(&text);
+
+    // Update block cache
+    let block_cache =
+      filament_mat_lsp::block_cache::BlockCache::from_matfile(version, matfile.clone());
+    self.block_cache_manager.insert(uri.clone(), block_cache);
+
+    Some(matfile)
   }
 
   fn parse_text(&self, text: &str) -> Result<Material, ParseError> {
@@ -171,6 +227,84 @@ impl ServerState {
     let tokens = lexer.tokenize();
     let mut parser = Parser::new(tokens);
     parser.parse()
+  }
+
+  /// Get semantic tokens for a document, using cache if available.
+  pub fn get_semantic_tokens(&mut self, uri: &Uri) -> Option<(String, Vec<SemanticToken>)> {
+    let doc = self.documents.get(uri)?;
+    let version = doc.version;
+
+    // Check cache
+    if let Some(cache) = self.semantic_tokens_cache.get(uri)
+      && cache.version == version
+    {
+      return Some((cache.result_id.clone(), cache.data.clone()));
+    }
+
+    // Generate new tokens
+    let data = super::semantic_tokens::generate_semantic_tokens(&doc.text);
+    let result_id = format!("{}", version);
+
+    // Update cache
+    self.semantic_tokens_cache.insert(
+      uri.clone(),
+      SemanticTokensCache {
+        version,
+        result_id: result_id.clone(),
+        data: data.clone(),
+      },
+    );
+
+    Some((result_id, data))
+  }
+
+  /// Get semantic tokens delta for a document.
+  /// Returns (result_id, is_delta, data_or_edits).
+  pub fn get_semantic_tokens_delta(
+    &mut self,
+    uri: &Uri,
+    previous_result_id: &str,
+  ) -> Option<(
+    String,
+    bool,
+    Vec<SemanticToken>,
+    Vec<lsp_types::SemanticTokensEdit>,
+  )> {
+    let doc = self.documents.get(uri)?;
+    let version = doc.version;
+
+    // Check if previous result is still valid
+    if let Some(cache) = self.semantic_tokens_cache.get(uri)
+      && cache.result_id == previous_result_id
+      && cache.version == version
+    {
+      // No changes, return empty delta
+      return Some((previous_result_id.to_string(), true, vec![], vec![]));
+    }
+
+    // Generate new tokens
+    let new_data = super::semantic_tokens::generate_semantic_tokens(&doc.text);
+    let result_id = format!("{}", version);
+
+    // For simplicity, we return full data as a single edit
+    // Client can handle receiving full data in delta response
+    let edits = vec![lsp_types::SemanticTokensEdit {
+      start: 0,
+      delete_count: 0,
+      data: Some(new_data.clone()),
+    }];
+
+    // Update cache
+    self.semantic_tokens_cache.insert(
+      uri.clone(),
+      SemanticTokensCache {
+        version,
+        result_id: result_id.clone(),
+        data: new_data.clone(),
+      },
+    );
+
+    Some((result_id, true, new_data, edits))
   }
 }
 

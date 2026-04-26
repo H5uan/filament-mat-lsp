@@ -7,6 +7,12 @@ pub struct CompletionItem {
   pub label: String,
   pub kind: CompletionItemKind,
   pub documentation: Option<String>,
+  /// Text to insert when accepting this completion. If None, uses `label`.
+  pub insert_text: Option<String>,
+  /// Format of the insert text.
+  pub insert_text_format: InsertTextFormat,
+  /// Text used for filtering against the user's input. If None, uses `label`.
+  pub filter_text: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -14,6 +20,12 @@ pub enum CompletionItemKind {
   Property,
   EnumValue,
   Type,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InsertTextFormat {
+  PlainText,
+  Snippet,
 }
 
 pub struct CompletionEngine;
@@ -46,6 +58,9 @@ impl CompletionEngine {
           label: p.name.to_string(),
           kind: CompletionItemKind::Property,
           documentation: Some(format_documentation(p)),
+          insert_text: Some(make_property_snippet(p)),
+          insert_text_format: InsertTextFormat::Snippet,
+          filter_text: Some(p.name.to_string()),
         })
         .collect()
     })
@@ -59,6 +74,9 @@ impl CompletionEngine {
           label: v.to_string(),
           kind: CompletionItemKind::EnumValue,
           documentation: None,
+          insert_text: None,
+          insert_text_format: InsertTextFormat::PlainText,
+          filter_text: None,
         })
         .collect()
     } else {
@@ -74,6 +92,9 @@ impl CompletionEngine {
           label: kw.to_string(),
           kind: CompletionItemKind::Type,
           documentation: None,
+          insert_text: None,
+          insert_text_format: InsertTextFormat::PlainText,
+          filter_text: None,
         })
         .collect()
     })
@@ -87,6 +108,9 @@ impl CompletionEngine {
           label: kw.to_string(),
           kind: CompletionItemKind::EnumValue,
           documentation: None,
+          insert_text: None,
+          insert_text_format: InsertTextFormat::PlainText,
+          filter_text: None,
         })
         .collect()
     })
@@ -100,9 +124,29 @@ impl CompletionEngine {
           label: kw.to_string(),
           kind: CompletionItemKind::Property,
           documentation: None,
+          insert_text: None,
+          insert_text_format: InsertTextFormat::PlainText,
+          filter_text: None,
         })
         .collect()
     })
+  }
+}
+
+fn make_property_snippet(prop: &PropertyDef) -> String {
+  match prop.value_type {
+    ValueType::Identifier if prop.valid_values.is_some() => {
+      let choices = prop.valid_values.unwrap().join(",");
+      format!("{}: ${{1|{}|}},", prop.name, choices)
+    }
+    ValueType::String => format!("{}: \"${{1}}\",", prop.name),
+    ValueType::Number => format!("{}: ${{1}},", prop.name),
+    ValueType::Bool => format!("{}: ${{1|true,false|}},", prop.name),
+    ValueType::ArrayOfIdentifiers => format!("{}: [${{1}}],", prop.name),
+    ValueType::ArrayOfObjects => format!("{}: [${{1}}],", prop.name),
+    ValueType::ArrayOfStrings => format!("{}: [\"${{1}}\"],", prop.name),
+    ValueType::Object => format!("{}: {{${{1}}}},", prop.name),
+    _ => format!("{}: ${{1}},", prop.name),
   }
 }
 

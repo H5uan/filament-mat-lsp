@@ -2,6 +2,7 @@ use lsp_types::{self, CompletionItemKind, DiagnosticSeverity, Position, Range};
 
 use filament_mat_lsp::completion::{
   CompletionItem, CompletionItemKind as InternalCompletionItemKind,
+  InsertTextFormat as InternalInsertTextFormat,
 };
 use filament_mat_lsp::diagnostics::{
   Diagnostic, DiagnosticSeverity as InternalDiagnosticSeverity, TextRange,
@@ -29,6 +30,12 @@ pub fn to_lsp_completion_item(item: CompletionItem) -> lsp_types::CompletionItem
       InternalCompletionItemKind::Type => CompletionItemKind::TYPE_PARAMETER,
     }),
     documentation: item.documentation.map(lsp_types::Documentation::String),
+    insert_text: item.insert_text,
+    insert_text_format: Some(match item.insert_text_format {
+      InternalInsertTextFormat::PlainText => lsp_types::InsertTextFormat::PLAIN_TEXT,
+      InternalInsertTextFormat::Snippet => lsp_types::InsertTextFormat::SNIPPET,
+    }),
+    filter_text: item.filter_text,
     ..Default::default()
   }
 }

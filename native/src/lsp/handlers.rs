@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use lsp_server::{Message, Notification, Request, Response};
 use lsp_types::*;
 
@@ -77,25 +79,45 @@ pub fn handle_request(
       let tokens = handle_semantic_tokens(server, params);
       send_response(sender, req.id, tokens)?;
     }
+    "textDocument/semanticTokens/full/delta" => {
+      let params: SemanticTokensDeltaParams = serde_json::from_value(req.params)?;
+      let delta = handle_semantic_tokens_delta(server, params);
+      send_response(sender, req.id, delta)?;
+    }
     "textDocument/formatting" => {
       let params: DocumentFormattingParams = serde_json::from_value(req.params)?;
       let edits = handle_formatting(server, params);
       send_response(sender, req.id, edits)?;
     }
-    "workspace/symbol" => {
-      let params: WorkspaceSymbolParams = serde_json::from_value(req.params)?;
-      let symbols = handle_workspace_symbol(server, params);
-      send_response(sender, req.id, symbols)?;
+    "textDocument/rangeFormatting" => {
+      let params: DocumentRangeFormattingParams = serde_json::from_value(req.params)?;
+      let edits = handle_range_formatting(server, params);
+      send_response(sender, req.id, edits)?;
     }
-    "textDocument/rename" => {
-      let params: RenameParams = serde_json::from_value(req.params)?;
-      let edit = handle_rename(server, params);
-      send_response(sender, req.id, edit)?;
+    "textDocument/documentColor" => {
+      let params: DocumentColorParams = serde_json::from_value(req.params)?;
+      let colors = handle_document_color(server, params);
+      send_response(sender, req.id, colors)?;
     }
-    "textDocument/prepareRename" => {
-      let params: TextDocumentPositionParams = serde_json::from_value(req.params)?;
-      let range = handle_prepare_rename(server, params);
-      send_response(sender, req.id, range)?;
+    "textDocument/colorPresentation" => {
+      let params: ColorPresentationParams = serde_json::from_value(req.params)?;
+      let presentations = handle_color_presentation(params);
+      send_response(sender, req.id, presentations)?;
+    }
+    "textDocument/onTypeFormatting" => {
+      let params: DocumentOnTypeFormattingParams = serde_json::from_value(req.params)?;
+      let edits = handle_on_type_formatting(server, params);
+      send_response(sender, req.id, edits)?;
+    }
+    "textDocument/documentLink" => {
+      let params: DocumentLinkParams = serde_json::from_value(req.params)?;
+      let links = handle_document_link(server, params);
+      send_response(sender, req.id, links)?;
+    }
+    "textDocument/codeLens" => {
+      let params: CodeLensParams = serde_json::from_value(req.params)?;
+      let lenses = handle_code_lens(server, params);
+      send_response(sender, req.id, lenses)?;
     }
     _ => {
       send_error(
@@ -123,9 +145,10 @@ pub fn handle_notification(
         uri.clone(),
         super::server::Document::new(text.clone(), version),
       );
-      // Trigger diagnostics
-      let diagnostics = compute_diagnostics(server, &uri);
-      publish_diagnostics(&uri, diagnostics, server)?;
+      // Mark for debounced diagnostics
+      server
+        .pending_diagnostics
+        .insert(uri.clone(), (version, std::time::Instant::now()));
     }
     "textDocument/didChange" => {
       let params: DidChangeTextDocumentParams = serde_json::from_value(not.params)?;
@@ -134,8 +157,10 @@ pub fn handle_notification(
       for change in params.content_changes {
         server.apply_change(&uri, change, version);
       }
-      let diagnostics = compute_diagnostics(server, &uri);
-      publish_diagnostics(&uri, diagnostics, server)?;
+      // Mark for debounced diagnostics instead of computing immediately
+      server
+        .pending_diagnostics
+        .insert(uri.clone(), (version, std::time::Instant::now()));
     }
     "textDocument/didClose" => {
       let params: DidCloseTextDocumentParams = serde_json::from_value(not.params)?;
@@ -156,17 +181,44 @@ fn handle_completion(server: &ServerState, params: CompletionParams) -> Completi
     InternalCompletionContext::MaterialBlock
   };
 
+  // Extract prefix for filtering
+  let prefix = if let Some(doc) = server.get_document(uri) {
+    extract_completion_prefix(doc, position)
+  } else {
+    String::new()
+  };
+
   let engine = CompletionEngine::new();
   let items = engine.get_completions(context);
   let completion_items: Vec<CompletionItem> = items
     .into_iter()
+    .filter(|item| {
+      let text_to_match = item.filter_text.as_ref().unwrap_or(&item.label);
+      text_to_match
+        .to_lowercase()
+        .starts_with(&prefix.to_lowercase())
+    })
     .map(conv::to_lsp_completion_item)
     .collect();
 
   CompletionList {
-    is_incomplete: false,
+    is_incomplete: !prefix.is_empty(),
     items: completion_items,
   }
+}
+
+/// Extract the text prefix before the cursor for completion filtering.
+fn extract_completion_prefix(doc: &super::server::Document, position: Position) -> String {
+  let offset = doc.position_to_offset(position);
+  let text = &doc.text[..offset];
+
+  // Find the start of the current word
+  let word_start = text
+    .rfind(|c: char| !c.is_alphanumeric() && c != '_')
+    .map(|i| i + 1)
+    .unwrap_or(0);
+
+  text[word_start..].to_string()
 }
 
 fn detect_completion_context(
@@ -399,16 +451,33 @@ fn handle_code_action(
 }
 
 fn handle_semantic_tokens(
-  server: &ServerState,
+  server: &mut ServerState,
   params: SemanticTokensParams,
 ) -> Option<SemanticTokensResult> {
   let uri = &params.text_document.uri;
-  let doc = server.get_document(uri)?;
-  let data = super::semantic_tokens::generate_semantic_tokens(&doc.text);
+  let (result_id, data) = server.get_semantic_tokens(uri)?;
   Some(SemanticTokensResult::Tokens(SemanticTokens {
-    result_id: None,
+    result_id: Some(result_id),
     data,
   }))
+}
+
+fn handle_semantic_tokens_delta(
+  server: &mut ServerState,
+  params: SemanticTokensDeltaParams,
+) -> Option<SemanticTokensFullDeltaResult> {
+  let uri = &params.text_document.uri;
+  let previous_result_id = params.previous_result_id.as_str();
+
+  let (result_id, _is_delta, _data, edits) =
+    server.get_semantic_tokens_delta(uri, previous_result_id)?;
+
+  Some(SemanticTokensFullDeltaResult::TokensDelta(
+    SemanticTokensDelta {
+      result_id: Some(result_id),
+      edits,
+    },
+  ))
 }
 
 fn handle_formatting(
@@ -433,6 +502,137 @@ fn handle_formatting(
       },
     },
     new_text: formatted,
+  }])
+}
+
+fn handle_range_formatting(
+  server: &ServerState,
+  params: DocumentRangeFormattingParams,
+) -> Option<Vec<TextEdit>> {
+  let uri = &params.text_document.uri;
+  let doc = server.get_document(uri)?;
+  let range = params.range;
+
+  // Extract lines in the range
+  let lines: Vec<&str> = doc.text.lines().collect();
+  let start_line = range.start.line as usize;
+  let end_line = range.end.line as usize;
+
+  if start_line >= lines.len() {
+    return Some(Vec::new());
+  }
+
+  let end_line = end_line.min(lines.len() - 1);
+
+  // Calculate initial indent level from lines before the range
+  let mut indent_level = 0usize;
+  for line in lines.iter().take(start_line) {
+    let trimmed = line.trim();
+    if trimmed.ends_with('{') {
+      indent_level += 1;
+    }
+    if trimmed.starts_with('}') || trimmed == "}" {
+      indent_level = indent_level.saturating_sub(1);
+    }
+  }
+
+  // Format the selected lines
+  let mut formatted_lines = Vec::new();
+  let mut in_glsl = false;
+
+  // Check if we're inside a shader block
+  for line in lines.iter().take(start_line) {
+    let trimmed = line.trim();
+    if trimmed.starts_with("vertex ")
+      || trimmed.starts_with("fragment ")
+      || trimmed.starts_with("compute ")
+      || trimmed.starts_with("tool ")
+    {
+      in_glsl = true;
+    }
+    if trimmed == "}" && in_glsl {
+      in_glsl = false;
+    }
+  }
+
+  for line in lines.iter().take(end_line + 1).skip(start_line) {
+    let trimmed = line.trim();
+
+    if trimmed.is_empty() {
+      formatted_lines.push(String::new());
+      continue;
+    }
+
+    // Detect shader block start/end
+    if trimmed.starts_with("vertex ")
+      || trimmed.starts_with("fragment ")
+      || trimmed.starts_with("compute ")
+      || trimmed.starts_with("tool ")
+    {
+      in_glsl = true;
+    }
+    if trimmed == "}" && in_glsl {
+      in_glsl = false;
+    }
+
+    if in_glsl
+      && !trimmed.starts_with("material ")
+      && !trimmed.starts_with("vertex ")
+      && !trimmed.starts_with("fragment ")
+      && !trimmed.starts_with("compute ")
+      && !trimmed.starts_with("tool ")
+    {
+      // Preserve GLSL code as-is
+      formatted_lines.push(line.to_string());
+      continue;
+    }
+
+    // Decrease indent before closing brace
+    if trimmed.starts_with('}') {
+      indent_level = indent_level.saturating_sub(1);
+    }
+
+    // Build formatted line
+    let mut formatted = String::new();
+    for _ in 0..indent_level {
+      formatted.push_str("    ");
+    }
+    formatted.push_str(trimmed);
+    formatted_lines.push(formatted);
+
+    // Increase indent after opening brace
+    if trimmed.ends_with('{') {
+      indent_level += 1;
+    }
+
+    // Decrease indent for lone closing braces
+    if trimmed == "}" {
+      indent_level = indent_level.saturating_sub(1);
+    }
+  }
+
+  // Join formatted lines
+  let new_text = formatted_lines.join("\n") + "\n";
+
+  // Build the original text in the range
+  let original_text = lines[start_line..=end_line].join("\n") + "\n";
+
+  if new_text == original_text {
+    return Some(Vec::new());
+  }
+
+  Some(vec![TextEdit {
+    range: Range {
+      start: Position {
+        line: start_line as u32,
+        character: 0,
+      },
+      end: Position {
+        line: end_line as u32,
+        character: lines[end_line].len() as u32,
+      },
+    },
+    new_text,
   }])
 }
 
@@ -575,7 +775,7 @@ fn handle_document_symbol(
   Some(DocumentSymbolResponse::Nested(symbols))
 }
 
-fn compute_diagnostics(server: &mut ServerState, uri: &Uri) -> Vec<lsp_types::Diagnostic> {
+pub fn compute_diagnostics(server: &mut ServerState, uri: &Uri) -> Vec<lsp_types::Diagnostic> {
   let mut diagnostics = Vec::new();
 
   match server.parse_document(uri) {
@@ -606,7 +806,7 @@ fn compute_diagnostics(server: &mut ServerState, uri: &Uri) -> Vec<lsp_types::Di
   diagnostics
 }
 
-fn publish_diagnostics(
+pub fn publish_diagnostics(
   uri: &Uri,
   diagnostics: Vec<lsp_types::Diagnostic>,
   server: &ServerState,
@@ -802,4 +1002,505 @@ fn handle_rename(server: &mut ServerState, params: RenameParams) -> Option<Works
     document_changes: None,
     change_annotations: None,
   })
+}
+
+fn handle_document_highlight(
+  server: &mut ServerState,
+  params: DocumentHighlightParams,
+) -> Option<Vec<DocumentHighlight>> {
+  let uri = &params.text_document_position_params.text_document.uri;
+  let position = params.text_document_position_params.position;
+
+  let doc = server.get_document(uri)?;
+  let word = extract_word_at_position(doc, position)?;
+
+  let matfile = server.parse_full_document(uri)?;
+
+  let highlights = filament_mat_lsp::references::find_references(&matfile, &word, uri);
+
+  if highlights.is_empty() {
+    None
+  } else {
+    Some(highlights)
+  }
+}
+
+fn handle_folding_range(
+  server: &ServerState,
+  params: FoldingRangeParams,
+) -> Option<Vec<FoldingRange>> {
+  let uri = &params.text_document.uri;
+  let doc = server.get_document(uri)?;
+
+  // Tokenize the document to find folding ranges
+  use filament_mat_lsp::lexer::Lexer;
+  use filament_mat_lsp::token::TokenType;
+
+  let mut lexer = Lexer::new(&doc.text);
+  let tokens = lexer.tokenize();
+
+  let mut ranges = Vec::new();
+  let mut stack: Vec<(u32, u32, TokenType)> = Vec::new();
+
+  for token in tokens {
+    match token.token_type {
+      TokenType::LCurly | TokenType::LBracket => {
+        stack.push((token.line, token.column, token.token_type.clone()));
+      }
+      TokenType::RCurly | TokenType::RBracket => {
+        if let Some(start) = stack.pop() {
+          // Only create folding ranges for meaningful blocks
+          // Skip single-line ranges
+          if token.line > start.0 {
+            ranges.push(FoldingRange {
+              start_line: start.0,
+              start_character: Some(start.1),
+              end_line: token.line,
+              end_character: Some(token.column),
+              kind: Some(FoldingRangeKind::Region),
+              collapsed_text: None,
+            });
+          }
+        }
+      }
+      _ => {}
+    }
+  }
+
+  if ranges.is_empty() {
+    None
+  } else {
+    Some(ranges)
+  }
+}
+
+fn handle_references(server: &mut ServerState, params: ReferenceParams) -> Option<Vec<Location>> {
+  let uri = &params.text_document_position.text_document.uri;
+  let position = params.text_document_position.position;
+
+  let doc = server.get_document(uri)?;
+  let word = extract_word_at_position(doc, position)?;
+
+  let matfile = server.parse_full_document(uri)?;
+
+  let locations = filament_mat_lsp::references::find_reference_locations(&matfile, &word, uri);
+
+  if locations.is_empty() {
+    None
+  } else {
+    Some(locations)
+  }
+}
+
+fn handle_signature_help(
+  server: &ServerState,
+  params: SignatureHelpParams,
+) -> Option<SignatureHelp> {
+  let uri = &params.text_document_position_params.text_document.uri;
+  let position = params.text_document_position_params.position;
+
+  let doc = server.get_document(uri)?;
+  let offset = doc.position_to_offset(position);
+
+  let function_name = filament_mat_lsp::signature_help::find_function_name(&doc.text, offset)?;
+
+  let sig_info = filament_mat_lsp::signature_help::get_signature(&function_name)?;
+
+  let active_parameter =
+    filament_mat_lsp::signature_help::compute_active_parameter(&doc.text, offset);
+
+  let parameters: Vec<lsp_types::ParameterInformation> = sig_info
+    .parameters
+    .iter()
+    .map(|p| lsp_types::ParameterInformation {
+      label: lsp_types::ParameterLabel::Simple(p.label.clone()),
+      documentation: p
+        .documentation
+        .as_ref()
+        .map(|d| lsp_types::Documentation::String(d.clone())),
+    })
+    .collect();
+
+  let signature = lsp_types::SignatureInformation {
+    label: sig_info.label.clone(),
+    documentation: sig_info
+      .documentation
+      .as_ref()
+      .map(|d| lsp_types::Documentation::String(d.clone())),
+    parameters: Some(parameters),
+    active_parameter: None,
+  };
+
+  Some(SignatureHelp {
+    signatures: vec![signature],
+    active_signature: Some(0),
+    active_parameter: Some(active_parameter),
+  })
+}
+
+fn handle_selection_range(
+  server: &mut ServerState,
+  params: SelectionRangeParams,
+) -> Option<Vec<SelectionRange>> {
+  let uri = &params.text_document.uri;
+
+  let matfile = server.parse_full_document(uri)?;
+
+  let mut result = Vec::new();
+  for position in params.positions {
+    let ranges = filament_mat_lsp::selection_range::build_selection_ranges(&matfile, position);
+    if let Some(first) = ranges.first() {
+      result.push(first.clone());
+    }
+  }
+
+  if result.is_empty() {
+    None
+  } else {
+    Some(result)
+  }
+}
+
+fn handle_inlay_hints(server: &mut ServerState, params: InlayHintParams) -> Option<Vec<InlayHint>> {
+  let uri = &params.text_document.uri;
+
+  let matfile = server.parse_full_document(uri)?;
+
+  let hints = filament_mat_lsp::inlay_hints::generate_inlay_hints(&matfile, params.range);
+
+  if hints.is_empty() { None } else { Some(hints) }
+}
+
+fn handle_document_color(
+  server: &ServerState,
+  params: DocumentColorParams,
+) -> Option<Vec<ColorInformation>> {
+  let uri = &params.text_document.uri;
+  let doc = server.get_document(uri)?;
+
+  let colors = filament_mat_lsp::color_provider::find_colors(&doc.text);
+
+  if colors.is_empty() {
+    None
+  } else {
+    Some(colors)
+  }
+}
+
+fn handle_color_presentation(params: ColorPresentationParams) -> Option<Vec<ColorPresentation>> {
+  let presentations =
+    filament_mat_lsp::color_provider::get_color_presentations(params.color, params.range);
+
+  if presentations.is_empty() {
+    None
+  } else {
+    Some(presentations)
+  }
+}
+
+fn handle_on_type_formatting(
+  server: &ServerState,
+  params: DocumentOnTypeFormattingParams,
+) -> Option<Vec<TextEdit>> {
+  let uri = &params.text_document_position.text_document.uri;
+  let doc = server.get_document(uri)?;
+  let position = params.text_document_position.position;
+  let ch = params.ch;
+
+  // Only handle '}' for now - adjust indent of current line
+  if ch != "}" {
+    return Some(Vec::new());
+  }
+
+  let line_idx = position.line as usize;
+  let lines: Vec<&str> = doc.text.lines().collect();
+
+  if line_idx >= lines.len() {
+    return Some(Vec::new());
+  }
+
+  let current_line = lines[line_idx];
+  let trimmed = current_line.trim();
+
+  // Only format if this line is just a closing brace
+  if trimmed != "}" {
+    return Some(Vec::new());
+  }
+
+  // Calculate expected indent level by looking at previous lines
+  let mut indent_level = 0usize;
+  for line in lines.iter().take(line_idx) {
+    let t = line.trim();
+    if t.ends_with('{') {
+      indent_level += 1;
+    }
+    if t.starts_with('}') || t == "}" {
+      indent_level = indent_level.saturating_sub(1);
+    }
+  }
+
+  // Decrease indent for this closing brace
+  indent_level = indent_level.saturating_sub(1);
+
+  let mut expected = String::new();
+  for _ in 0..indent_level {
+    expected.push_str("    ");
+  }
+  expected.push('}');
+
+  if current_line == expected {
+    return Some(Vec::new());
+  }
+
+  Some(vec![TextEdit {
+    range: Range {
+      start: Position {
+        line: line_idx as u32,
+        character: 0,
+      },
+      end: Position {
+        line: line_idx as u32,
+        character: current_line.len() as u32,
+      },
+    },
+    new_text: expected,
+  }])
+}
+
+fn handle_document_link(
+  server: &ServerState,
+  params: DocumentLinkParams,
+) -> Option<Vec<DocumentLink>> {
+  let uri = &params.text_document.uri;
+  let doc = server.get_document(uri)?;
+
+  let mut links = Vec::new();
+  let text = &doc.text;
+
+  // Find material property lines and create links for known enum values
+  for (line_idx, line) in text.lines().enumerate() {
+    let trimmed = line.trim();
+
+    // shadingModel: lit → link to shading model docs
+    if trimmed.contains("shadingModel")
+      && let Some(colon_idx) = trimmed.find(':')
+    {
+      let value_part = &trimmed[colon_idx + 1..].trim();
+      if let Some(value) = value_part.split([',', '}']).next() {
+        let value = value.trim();
+        if !value.is_empty() {
+          let value_start = line.find(value).unwrap_or(0) as u32;
+          links.push(DocumentLink {
+            range: Range {
+              start: Position {
+                line: line_idx as u32,
+                character: value_start,
+              },
+              end: Position {
+                line: line_idx as u32,
+                character: value_start + value.len() as u32,
+              },
+            },
+            target: Some(
+              "https://google.github.io/filament/Materials.html#shadingmodel"
+                .parse::<Uri>()
+                .unwrap(),
+            ),
+            tooltip: Some("Open Filament shading model documentation".to_string()),
+            data: None,
+          });
+        }
+      }
+    }
+
+    // blendMode: opaque → link to blend mode docs
+    if trimmed.contains("blendMode")
+      && let Some(colon_idx) = trimmed.find(':')
+    {
+      let value_part = &trimmed[colon_idx + 1..].trim();
+      if let Some(value) = value_part.split([',', '}']).next() {
+        let value = value.trim();
+        if !value.is_empty() {
+          let value_start = line.find(value).unwrap_or(0) as u32;
+          links.push(DocumentLink {
+            range: Range {
+              start: Position {
+                line: line_idx as u32,
+                character: value_start,
+              },
+              end: Position {
+                line: line_idx as u32,
+                character: value_start + value.len() as u32,
+              },
+            },
+            target: Some(
+              "https://google.github.io/filament/Materials.html#blendmode"
+                .parse::<Uri>()
+                .unwrap(),
+            ),
+            tooltip: Some("Open Filament blend mode documentation".to_string()),
+            data: None,
+          });
+        }
+      }
+    }
+  }
+
+  if links.is_empty() { None } else { Some(links) }
+}
+
+fn handle_code_lens(server: &mut ServerState, params: CodeLensParams) -> Option<Vec<CodeLens>> {
+  let uri = &params.text_document.uri;
+  let matfile = server.parse_full_document(uri)?;
+
+  let mut lenses = Vec::new();
+
+  // Add code lens for each parameter showing reference count
+  for param in &matfile.material.parameters {
+    let name = &param.name;
+
+    // Count references in shader blocks
+    let mut ref_count = 0;
+    let param_ref = format!("materialParams.{}", name);
+
+    for shader in &matfile.shaders {
+      ref_count += shader.code.matches(&param_ref).count();
+    }
+
+    if ref_count > 0 {
+      let start = Position {
+        line: param.range.start.line,
+        character: param.range.start.character,
+      };
+      let end = Position {
+        line: param.range.end.line,
+        character: param.range.end.character,
+      };
+      lenses.push(CodeLens {
+        range: Range { start, end },
+        command: Some(Command {
+          title: format!(
+            "{} reference{}",
+            ref_count,
+            if ref_count == 1 { "" } else { "s" }
+          ),
+          command: "editor.action.showReferences".to_string(),
+          arguments: Some(vec![
+            serde_json::to_value(uri).unwrap(),
+            serde_json::to_value(start).unwrap(),
+            serde_json::to_value(Vec::new() as Vec<Location>).unwrap(),
+          ]),
+        }),
+        data: None,
+      });
+    }
+  }
+
+  if lenses.is_empty() {
+    None
+  } else {
+    Some(lenses)
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use crate::lsp::server::ServerState;
+
+  fn create_test_server(text: &str) -> ServerState {
+    let (sender, _) = crossbeam_channel::unbounded();
+    let mut server = ServerState::new(sender);
+    let uri: Uri = "file:///test.mat".parse().unwrap();
+    server.insert_document(uri, crate::lsp::server::Document::new(text.to_string(), 1));
+    server
+  }
+
+  #[test]
+  fn test_on_type_formatting_brace() {
+    // Note: the last line has wrong indentation (4 spaces instead of 0)
+    let text = "material {\n    vertex {\n        void main() {\n        }\n    }\n    }";
+    let server = create_test_server(text);
+    let uri: Uri = "file:///test.mat".parse().unwrap();
+
+    let params = DocumentOnTypeFormattingParams {
+      text_document_position: TextDocumentPositionParams {
+        text_document: TextDocumentIdentifier { uri: uri.clone() },
+        position: Position {
+          line: 5,
+          character: 5,
+        },
+      },
+      ch: "}".to_string(),
+      options: FormattingOptions::default(),
+    };
+
+    let edits = handle_on_type_formatting(&server, params);
+    assert!(edits.is_some());
+    let edits = edits.unwrap();
+    assert!(!edits.is_empty());
+    // The closing brace should be dedented to match 'material {'
+    assert_eq!(edits[0].new_text, "}");
+  }
+
+  #[test]
+  fn test_on_type_formatting_not_brace() {
+    let text = "material { }";
+    let server = create_test_server(text);
+    let uri: Uri = "file:///test.mat".parse().unwrap();
+
+    let params = DocumentOnTypeFormattingParams {
+      text_document_position: TextDocumentPositionParams {
+        text_document: TextDocumentIdentifier { uri: uri.clone() },
+        position: Position {
+          line: 0,
+          character: 10,
+        },
+      },
+      ch: ";".to_string(),
+      options: FormattingOptions::default(),
+    };
+
+    let edits = handle_on_type_formatting(&server, params);
+    assert!(edits.is_some());
+    assert!(edits.unwrap().is_empty());
+  }
+
+  #[test]
+  fn test_document_link_shading_model() {
+    let text = "material {\n    shadingModel : lit,\n}";
+    let server = create_test_server(text);
+    let uri: Uri = "file:///test.mat".parse().unwrap();
+
+    let params = DocumentLinkParams {
+      text_document: TextDocumentIdentifier { uri: uri.clone() },
+      work_done_progress_params: WorkDoneProgressParams::default(),
+      partial_result_params: PartialResultParams::default(),
+    };
+
+    let links = handle_document_link(&server, params);
+    assert!(links.is_some());
+    let links = links.unwrap();
+    assert_eq!(links.len(), 1);
+    assert!(links[0].target.is_some());
+  }
+
+  #[test]
+  fn test_document_link_blend_mode() {
+    let text = "material {\n    blendMode : opaque,\n}";
+    let server = create_test_server(text);
+    let uri: Uri = "file:///test.mat".parse().unwrap();
+
+    let params = DocumentLinkParams {
+      text_document: TextDocumentIdentifier { uri: uri.clone() },
+      work_done_progress_params: WorkDoneProgressParams::default(),
+      partial_result_params: PartialResultParams::default(),
+    };
+
+    let links = handle_document_link(&server, params);
+    assert!(links.is_some());
+    let links = links.unwrap();
+    assert_eq!(links.len(), 1);
+    assert!(links[0].target.is_some());
+  }
 }

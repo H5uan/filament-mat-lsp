@@ -1,9 +1,15 @@
+pub mod block_cache;
+pub mod color_provider;
 pub mod completion;
 pub mod diagnostics;
 pub mod hover;
+pub mod inlay_hints;
 pub mod lexer;
 pub mod parser;
+pub mod references;
 pub mod schema;
+pub mod selection_range;
+pub mod signature_help;
 pub mod token;
 
 // Re-export commonly used types
