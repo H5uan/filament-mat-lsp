@@ -116,23 +116,17 @@ pub fn handle_notification(
   Ok(())
 }
 
-fn handle_completion(_server: &ServerState, params: CompletionParams) -> CompletionList {
-  let engine = CompletionEngine::new();
+fn handle_completion(server: &ServerState, params: CompletionParams) -> CompletionList {
+  let uri = &params.text_document_position.text_document.uri;
+  let position = params.text_document_position.position;
 
-  // Simple context detection based on trigger character
-  let trigger = params
-    .context
-    .as_ref()
-    .and_then(|c| c.trigger_character.as_ref());
-
-  let context = match trigger.map(|s| s.as_str()) {
-    Some(":") => {
-      // Check what's before the colon to determine context
-      InternalCompletionContext::MaterialBlock
-    }
-    _ => InternalCompletionContext::MaterialBlock,
+  let context = if let Some(doc) = server.get_document(uri) {
+    detect_completion_context(doc, position)
+  } else {
+    InternalCompletionContext::MaterialBlock
   };
 
+  let engine = CompletionEngine::new();
   let items = engine.get_completions(context);
   let completion_items: Vec<CompletionItem> = items
     .into_iter()
@@ -145,12 +139,40 @@ fn handle_completion(_server: &ServerState, params: CompletionParams) -> Complet
   }
 }
 
+fn detect_completion_context(
+  doc: &super::server::Document,
+  position: Position,
+) -> InternalCompletionContext {
+  let offset = doc.position_to_offset(position);
+  let text = &doc.text[..offset];
+
+  // Look backwards for the last property name before a colon
+  if let Some(colon_idx) = text.rfind(':') {
+    let before = &text[..colon_idx];
+    let word_start = before
+      .rfind(|c: char| !c.is_alphanumeric() && c != '_')
+      .map(|i| i + 1)
+      .unwrap_or(0);
+    let word = before[word_start..].trim();
+
+    match word {
+      "shadingModel" => return InternalCompletionContext::ShadingModelValue,
+      "blending" => return InternalCompletionContext::BlendingValue,
+      "requires" => return InternalCompletionContext::RequiresValue,
+      "type" => return InternalCompletionContext::ParameterType,
+      _ => {}
+    }
+  }
+
+  InternalCompletionContext::MaterialBlock
+}
+
 fn handle_hover(server: &ServerState, params: HoverParams) -> Option<Hover> {
   let uri = &params.text_document_position_params.text_document.uri;
   let position = params.text_document_position_params.position;
 
   let doc = server.get_document(uri)?;
-  let word = extract_word_at_position(&doc.text, position)?;
+  let word = extract_word_at_position(doc, position)?;
 
   let engine = HoverEngine::new();
   engine.get_hover(&word).map(|doc| Hover {
@@ -162,23 +184,33 @@ fn handle_hover(server: &ServerState, params: HoverParams) -> Option<Hover> {
   })
 }
 
-fn extract_word_at_position(text: &str, position: Position) -> Option<String> {
-  let lines: Vec<&str> = text.lines().collect();
-  let line = *lines.get(position.line as usize)?;
+fn extract_word_at_position(doc: &super::server::Document, position: Position) -> Option<String> {
+  let offset = doc.position_to_offset(position);
+  let text = &doc.text;
 
-  let mut start = position.character as usize;
-  let mut end = position.character as usize;
+  let mut start = offset;
+  let mut end = offset;
 
-  // Find word boundaries
-  while start > 0 && is_word_char(line.chars().nth(start - 1)?) {
-    start -= 1;
+  // Go backwards to find word start
+  while start > 0 {
+    let prev = text[..start].chars().last()?;
+    if !is_word_char(prev) {
+      break;
+    }
+    start -= prev.len_utf8();
   }
-  while end < line.len() && is_word_char(line.chars().nth(end)?) {
-    end += 1;
+
+  // Go forwards to find word end
+  while end < text.len() {
+    let next = text[end..].chars().next()?;
+    if !is_word_char(next) {
+      break;
+    }
+    end += next.len_utf8();
   }
 
   if start < end {
-    Some(line[start..end].to_string())
+    Some(text[start..end].to_string())
   } else {
     None
   }
@@ -196,7 +228,7 @@ fn handle_definition(
   let position = params.text_document_position_params.position;
 
   let doc = server.get_document(uri)?;
-  let word = extract_word_at_position(&doc.text, position)?;
+  let word = extract_word_at_position(doc, position)?;
 
   let material = match server.parse_document(uri)? {
     Ok(m) => m,

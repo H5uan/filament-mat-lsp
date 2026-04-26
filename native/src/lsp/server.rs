@@ -41,14 +41,16 @@ impl Document {
 
     let line_text = &self.text[line_start..line_end];
     let mut byte_offset = line_start;
+    let mut utf16_count = 0;
 
-    for (char_count, c) in line_text.chars().enumerate() {
-      if char_count >= position.character as usize {
+    for c in line_text.chars() {
+      if utf16_count >= position.character as usize {
         break;
       }
       if c == '\n' || c == '\r' {
         break;
       }
+      utf16_count += c.len_utf16();
       byte_offset += c.len_utf8();
     }
 
