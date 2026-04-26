@@ -3,6 +3,27 @@
     "displayName": "Filament Material LSP",
     "description": "Language Server Protocol support for Filament material files",
     "version": "0.0.1",
+    "publisher": "your-publisher-name",
+    "author": "Ruoxuan Fu",
+    "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/H5uan/filament-mat-lsp.git"
+    },
+    "bugs": {
+        "url": "https://github.com/H5uan/filament-mat-lsp/issues"
+    },
+    "homepage": "https://github.com/H5uan/filament-mat-lsp#readme",
+    "keywords": [
+        "filament",
+        "material",
+        "lsp",
+        "language-server",
+        "vscode-extension",
+        "graphics",
+        "shader",
+        "pbr"
+    ],
     "engines": {
         "vscode": "^1.75.0"
     },
