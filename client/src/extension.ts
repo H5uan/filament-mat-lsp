@@ -24,9 +24,6 @@ export async function activate(context: ExtensionContext) {
 
     const clientOptions: LanguageClientOptions = {
         documentSelector: [{ scheme: "file", language: "filament-mat" }],
-        synchronize: {
-            fileEvents: workspace.createFileSystemWatcher("**/.clientrc"),
-        },
     };
 
     client = new LanguageClient(
@@ -94,9 +91,8 @@ export async function activate(context: ExtensionContext) {
     );
 }
 
-export function deactivate(): Thenable<void> | undefined {
-    if (!client) {
-        return undefined;
+export async function deactivate(): Promise<void> {
+    if (client) {
+        await client.stop();
     }
-    return client.stop();
 }

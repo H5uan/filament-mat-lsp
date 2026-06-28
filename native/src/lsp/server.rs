@@ -94,6 +94,8 @@ pub struct ServerState {
   /// Key: document URI
   /// Value: (version, last_change_instant)
   pub pending_diagnostics: HashMap<Uri, (i32, Instant)>,
+  /// Optional matc compiler configuration for real diagnostics.
+  pub matc_config: Option<filament_mat_lsp::matc::MatcConfig>,
 }
 
 impl ServerState {
@@ -104,6 +106,7 @@ impl ServerState {
       block_cache_manager: BlockCacheManager::new(),
       semantic_tokens_cache: HashMap::new(),
       pending_diagnostics: HashMap::new(),
+      matc_config: None,
     }
   }
 

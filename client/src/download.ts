@@ -8,20 +8,22 @@ function getTargetTriple(): string {
     const platform = os.platform();
     const arch = os.arch();
     if (platform === "win32" && arch === "x64") return "x86_64-pc-windows-msvc";
+    if (platform === "win32" && arch === "arm64") return "aarch64-pc-windows-msvc";
     if (platform === "darwin" && arch === "x64") return "x86_64-apple-darwin";
     if (platform === "darwin" && arch === "arm64") return "aarch64-apple-darwin";
     if (platform === "linux" && arch === "x64") return "x86_64-unknown-linux-gnu";
+    if (platform === "linux" && arch === "arm64") return "aarch64-unknown-linux-gnu";
     throw new Error(`Unsupported platform: ${platform} ${arch}`);
 }
 
-function downloadFile(url: string, dest: string): Promise<void> {
+function downloadFile(url: string, dest: string, timeoutMs: number = 30000): Promise<void> {
     return new Promise((resolve, reject) => {
         const file = fs.createWriteStream(dest);
-        https
-            .get(url, (response) => {
-                if (response.statusCode === 302 || response.statusCode === 301) {
+        const req = https
+            .get(url, { timeout: timeoutMs }, (response) => {
+                if (response.statusCode === 302 || response.statusCode === 301 || response.statusCode === 307 || response.statusCode === 308) {
                     if (response.headers.location) {
-                        downloadFile(response.headers.location, dest)
+                        downloadFile(response.headers.location, dest, timeoutMs)
                             .then(resolve)
                             .catch(reject);
                         return;
@@ -41,7 +43,29 @@ function downloadFile(url: string, dest: string): Promise<void> {
                 fs.unlink(dest, () => {});
                 reject(err);
             });
+        req.setTimeout(timeoutMs, () => {
+            req.destroy();
+            fs.unlink(dest, () => {});
+            reject(new Error(`Download timed out after ${timeoutMs}ms`));
+        });
     });
+}
+
+async function downloadWithRetry(url: string, dest: string, retries: number = 3): Promise<void> {
+    let lastError: Error | undefined;
+    for (let i = 0; i < retries; i++) {
+        try {
+            await downloadFile(url, dest);
+            return;
+        } catch (err) {
+            lastError = err instanceof Error ? err : new Error(String(err));
+            if (i < retries - 1) {
+                const delay = Math.pow(2, i) * 1000;
+                await new Promise((resolve) => setTimeout(resolve, delay));
+            }
+        }
+    }
+    throw lastError || new Error("Download failed after retries");
 }
 
 function getWorkspaceBinaryPath(context: ExtensionContext): string | undefined {
@@ -58,6 +82,16 @@ function getWorkspaceBinaryPath(context: ExtensionContext): string | undefined {
         return workspaceBinary;
     }
     return undefined;
+}
+
+function getPackageVersion(): string {
+    try {
+        const packageJsonPath = path.join(__dirname, "..", "..", "package.json");
+        const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
+        return packageJson.version || "0.0.1";
+    } catch {
+        return "0.0.1";
+    }
 }
 
 export async function ensureServerBinary(
@@ -82,12 +116,14 @@ export async function ensureServerBinary(
     fs.mkdirSync(binaryDir, { recursive: true });
 
     // Download from GitHub Releases
-    const version = "0.0.1"; // Should match package.json version
+    const version = getPackageVersion();
     const ext = os.platform() === "win32" ? ".exe" : "";
     const url = `https://github.com/H5uan/filament-mat-lsp/releases/download/v${version}/filament-mat-lsp-${target}${ext}`;
 
-    await downloadFile(url, binaryPath);
-    fs.chmodSync(binaryPath, "755");
+    await downloadWithRetry(url, binaryPath);
+    if (os.platform() !== "win32") {
+        fs.chmodSync(binaryPath, "755");
+    }
 
     return binaryPath;
 }

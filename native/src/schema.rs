@@ -378,6 +378,30 @@ pub fn get_properties() -> &'static [PropertyDef] {
         docs: "Number of eyes for stereoscopic rendering.",
         valid_values: None,
       },
+      PropertyDef {
+        name: "blendFunction",
+        value_type: ValueType::Object,
+        docs: "Custom blend function configuration. Object with sourceRGB, sourceAlpha, destinationRGB, destinationAlpha fields.",
+        valid_values: None,
+      },
+      PropertyDef {
+        name: "buffers",
+        value_type: ValueType::ArrayOfObjects,
+        docs: "SSBO bindings. Array of objects with name.",
+        valid_values: None,
+      },
+      PropertyDef {
+        name: "subpasses",
+        value_type: ValueType::ArrayOfObjects,
+        docs: "Subpass inputs. Array of objects with name, type.",
+        valid_values: None,
+      },
+      PropertyDef {
+        name: "outputs",
+        value_type: ValueType::ArrayOfObjects,
+        docs: "Fragment outputs. Array of objects with name, type.",
+        valid_values: None,
+      },
     ]
   })
 }

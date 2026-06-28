@@ -17,7 +17,7 @@ suite('Filament Material LSP E2E Test Suite', () => {
   });
 
   test('Extension should be active for .mat files', async () => {
-    const ext = vscode.extensions.getExtension('undefined_publisher.filament-mat-lsp');
+    const ext = vscode.extensions.getExtension('your-publisher-name.filament-mat-lsp');
     assert.ok(ext, 'Extension should be found');
     await ext?.activate();
     assert.ok(ext?.isActive, 'Extension should be active');

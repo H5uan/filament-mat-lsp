@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use lsp_server::{Message, Notification, Request, Response};
 use lsp_types::*;
 
@@ -8,6 +6,7 @@ use filament_mat_lsp::completion::{
 };
 use filament_mat_lsp::diagnostics::Validator;
 use filament_mat_lsp::hover::HoverEngine;
+use filament_mat_lsp::matc;
 
 use super::conv;
 use super::server::ServerState;
@@ -119,6 +118,51 @@ pub fn handle_request(
       let lenses = handle_code_lens(server, params);
       send_response(sender, req.id, lenses)?;
     }
+    "textDocument/references" => {
+      let params: ReferenceParams = serde_json::from_value(req.params)?;
+      let locations = handle_references(server, params);
+      send_response(sender, req.id, locations)?;
+    }
+    "textDocument/prepareRename" => {
+      let params: TextDocumentPositionParams = serde_json::from_value(req.params)?;
+      let range = handle_prepare_rename(server, params);
+      send_response(sender, req.id, range)?;
+    }
+    "textDocument/rename" => {
+      let params: RenameParams = serde_json::from_value(req.params)?;
+      let edit = handle_rename(server, params);
+      send_response(sender, req.id, edit)?;
+    }
+    "textDocument/documentHighlight" => {
+      let params: DocumentHighlightParams = serde_json::from_value(req.params)?;
+      let highlights = handle_document_highlight(server, params);
+      send_response(sender, req.id, highlights)?;
+    }
+    "textDocument/foldingRange" => {
+      let params: FoldingRangeParams = serde_json::from_value(req.params)?;
+      let ranges = handle_folding_range(server, params);
+      send_response(sender, req.id, ranges)?;
+    }
+    "textDocument/signatureHelp" => {
+      let params: SignatureHelpParams = serde_json::from_value(req.params)?;
+      let help = handle_signature_help(server, params);
+      send_response(sender, req.id, help)?;
+    }
+    "textDocument/selectionRange" => {
+      let params: SelectionRangeParams = serde_json::from_value(req.params)?;
+      let ranges = handle_selection_range(server, params);
+      send_response(sender, req.id, ranges)?;
+    }
+    "textDocument/inlayHint" => {
+      let params: InlayHintParams = serde_json::from_value(req.params)?;
+      let hints = handle_inlay_hints(server, params);
+      send_response(sender, req.id, hints)?;
+    }
+    "workspace/symbol" => {
+      let params: WorkspaceSymbolParams = serde_json::from_value(req.params)?;
+      let symbols = handle_workspace_symbol(server, params);
+      send_response(sender, req.id, symbols)?;
+    }
     _ => {
       send_error(
         sender,
@@ -161,6 +205,20 @@ pub fn handle_notification(
       server
         .pending_diagnostics
         .insert(uri.clone(), (version, std::time::Instant::now()));
+    }
+    "textDocument/didSave" => {
+      let params: DidSaveTextDocumentParams = serde_json::from_value(not.params)?;
+      let uri = params.text_document.uri;
+      if let Some(doc) = server.get_document(&uri) {
+        let text = doc.text.clone();
+        let mut all_diags = compute_diagnostics(server, &uri);
+        if let Some(matc_diags) = compute_matc_diagnostics(server, &uri, &text) {
+          all_diags.extend(matc_diags);
+        }
+        if let Err(e) = publish_diagnostics(&uri, all_diags, server) {
+          eprintln!("Error publishing diagnostics: {}", e);
+        }
+      }
     }
     "textDocument/didClose" => {
       let params: DidCloseTextDocumentParams = serde_json::from_value(not.params)?;
@@ -793,7 +851,7 @@ pub fn compute_diagnostics(server: &mut ServerState, uri: &Uri) -> Vec<lsp_types
         severity: Some(lsp_types::DiagnosticSeverity::ERROR),
         code: None,
         code_description: None,
-        source: Some("filament-mat".to_string()),
+        source: Some("filament-mat-lsp".to_string()),
         message: parse_err.message,
         related_information: None,
         tags: None,
@@ -806,6 +864,50 @@ pub fn compute_diagnostics(server: &mut ServerState, uri: &Uri) -> Vec<lsp_types
   diagnostics
 }
 
+fn compute_matc_diagnostics(
+  server: &ServerState,
+  _uri: &Uri,
+  text: &str,
+) -> Option<Vec<lsp_types::Diagnostic>> {
+  let config = server.matc_config.as_ref()?;
+  // Write text to temp file for matc
+  let temp_path = std::env::temp_dir().join("filament_mat_temp.mat");
+  std::fs::write(&temp_path, text).ok()?;
+  let matc_diags = matc::run_matc(config, &temp_path).ok()?;
+  Some(
+    matc_diags
+      .into_iter()
+      .map(|d| lsp_types::Diagnostic {
+        range: lsp_types::Range {
+          start: lsp_types::Position {
+            line: d.line.unwrap_or(0),
+            character: 0,
+          },
+          end: lsp_types::Position {
+            line: d.line.unwrap_or(0),
+            character: 1,
+          },
+        },
+        severity: Some(match d.severity {
+          filament_mat_lsp::diagnostics::DiagnosticSeverity::Error => {
+            lsp_types::DiagnosticSeverity::ERROR
+          }
+          filament_mat_lsp::diagnostics::DiagnosticSeverity::Warning => {
+            lsp_types::DiagnosticSeverity::WARNING
+          }
+        }),
+        code: None,
+        code_description: None,
+        source: Some("matc".to_string()),
+        message: d.message,
+        related_information: None,
+        tags: None,
+        data: None,
+      })
+      .collect(),
+  )
+}
+
 pub fn publish_diagnostics(
   uri: &Uri,
   diagnostics: Vec<lsp_types::Diagnostic>,
@@ -814,13 +916,13 @@ pub fn publish_diagnostics(
   let params = PublishDiagnosticsParams {
     uri: uri.clone(),
     diagnostics,
-    version: None,
+    version: server.get_document(uri).map(|doc| doc.version),
   };
-  let notification = Notification {
-    method: "textDocument/publishDiagnostics".to_string(),
-    params: serde_json::to_value(params)?,
-  };
-  server.send(notification.into())?;
+  let not = lsp_server::Notification::new(
+    "textDocument/publishDiagnostics".to_string(),
+    serde_json::to_value(params)?,
+  );
+  server.send(not.into())?;
   Ok(())
 }
 

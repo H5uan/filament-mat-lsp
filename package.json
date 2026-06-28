@@ -2,7 +2,7 @@
     "name": "filament-mat-lsp",
     "displayName": "Filament Material LSP",
     "description": "Language Server Protocol support for Filament material files",
-    "version": "0.0.1",
+    "version": "0.3.0",
     "publisher": "your-publisher-name",
     "author": "Ruoxuan Fu",
     "license": "MIT",
@@ -80,6 +80,11 @@
         "configuration": {
             "title": "Filament Material",
             "properties": {
+                "filamentMat.diagnosticsDelay": {
+                    "type": "number",
+                    "default": 300,
+                    "description": "Delay in ms before computing diagnostics after typing"
+                },
                 "filamentMat.matcPath": {
                     "type": "string",
                     "default": "matc",
@@ -91,9 +96,8 @@
     "scripts": {
         "vscode:prepublish": "npm run compile:rust && npm run compile:ts",
         "compile:rust": "cd native && cargo build --release",
-        "compile:ts": "tsc -b",
-        "watch": "tsc -b -w",
-        "lint": "eslint ./client/src --ext .ts,.tsx",
+        "compile:ts": "cd client && tsc -b",
+        "watch": "cd client && tsc -b -w",
         "postinstall": "cd client && npm install",
         "check": "npm run check:rust && npm run check:ts",
         "check:rust": "cd native && cargo fmt --all -- --check && cargo clippy -- -D warnings && cargo check --all && cargo test --all",
@@ -103,7 +107,7 @@
         "fix:ts": "cd client && npx tsc --noEmit",
         "test": "cd native && cargo test --all",
         "test:rust": "cd native && cargo test --all",
-        "test:e2e": "tsc -b && node client/out/test/runTest.js"
+        "test:e2e": "cd client && tsc -b && node out/test/runTest.js"
     },
     "devDependencies": {
         "@types/glob": "^8.1.0",

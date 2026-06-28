@@ -82,10 +82,37 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     ..Default::default()
   })?;
 
-  let _init_params = connection.initialize(server_capabilities)?;
+  let init_params = connection.initialize(server_capabilities)?;
   eprintln!("Server initialized successfully");
 
   let mut server = lsp::server::ServerState::new(connection.sender.clone());
+
+  // Parse matc configuration from initialization options
+  if let Some(options) = init_params.get("initializationOptions")
+    && let Some(matc_opts) = options.get("matc").and_then(|v| v.as_object())
+  {
+    let matc_path = matc_opts
+      .get("matcPath")
+      .and_then(|v| v.as_str())
+      .unwrap_or("matc")
+      .to_string();
+    let platform = matc_opts
+      .get("matcPlatform")
+      .and_then(|v| v.as_str())
+      .unwrap_or("desktop")
+      .to_string();
+    let api = matc_opts
+      .get("matcApi")
+      .and_then(|v| v.as_str())
+      .unwrap_or("vulkan")
+      .to_string();
+    server.matc_config = Some(filament_mat_lsp::matc::MatcConfig {
+      matc_path,
+      platform,
+      api,
+    });
+    eprintln!("matc configuration loaded");
+  }
 
   const DIAGNOSTICS_DEBOUNCE_MS: u64 = 300;
   const POLL_INTERVAL_MS: u64 = 50;

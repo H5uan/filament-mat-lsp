@@ -5,6 +5,7 @@ pub mod diagnostics;
 pub mod hover;
 pub mod inlay_hints;
 pub mod lexer;
+pub mod matc;
 pub mod parser;
 pub mod references;
 pub mod schema;

@@ -104,6 +104,66 @@ impl HoverEngine {
         "GLSL built-in function for sampling textures.".to_string(),
       );
 
+      // Block-level documentation for new material blocks
+      docs.insert(
+        "constants".to_string(),
+        "Compile-time constants array. Each element is an object with `name`, `type` (int/float/bool), and optional `default` value.".to_string(),
+      );
+      docs.insert(
+        "variables".to_string(),
+        "Material variables array. List of identifiers that can be used as shader inputs.".to_string(),
+      );
+      docs.insert(
+        "buffers".to_string(),
+        "SSBO (Shader Storage Buffer Object) bindings. Each element is an object with `name`.".to_string(),
+      );
+      docs.insert(
+        "subpasses".to_string(),
+        "Subpass inputs for multi-pass rendering. Each element is an object with `name` and `type`.".to_string(),
+      );
+      docs.insert(
+        "outputs".to_string(),
+        "Fragment shader outputs. Each element is an object with `name` and `type` (e.g., float4).".to_string(),
+      );
+
+      // Field-level documentation for array object fields
+      docs.insert(
+        "name".to_string(),
+        "Name of the parameter, constant, buffer, subpass, or output. Must be unique within its block.".to_string(),
+      );
+      docs.insert(
+        "type".to_string(),
+        "Data type. For parameters: float4, sampler2d, etc. For constants: int, float, bool. For subpasses/outputs: the data type.".to_string(),
+      );
+      docs.insert(
+        "default".to_string(),
+        "Default value for constants or parameters. Used when no runtime value is provided.".to_string(),
+      );
+      docs.insert(
+        "precision".to_string(),
+        "Numeric precision: low, medium, high. Default is medium.".to_string(),
+      );
+      docs.insert(
+        "format".to_string(),
+        "Texture format for samplers: linear, nearest, etc.".to_string(),
+      );
+      docs.insert(
+        "filterable".to_string(),
+        "Whether the sampler can be filtered. Default is true.".to_string(),
+      );
+      docs.insert(
+        "multisample".to_string(),
+        "Whether the sampler supports multisampling.".to_string(),
+      );
+      docs.insert(
+        "stages".to_string(),
+        "Shader stages where this parameter is active: vertex, fragment, or both.".to_string(),
+      );
+      docs.insert(
+        "transformName".to_string(),
+        "Name of the transform matrix for this parameter.".to_string(),
+      );
+
       docs
     })
   }

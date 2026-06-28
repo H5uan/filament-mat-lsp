@@ -1,0 +1,17 @@
+.github/
+.git/
+.gitignore
+node_modules/
+native/
+filament/
+research-notes/
+test/
+docs/
+.prettierrc
+AGENTS.md
+README.md
+*.vsix
+client/src/
+client/node_modules/
+client/package.json
+client/tsconfig.json

@@ -7,6 +7,24 @@ struct Reference {
   is_write: bool,
 }
 
+/// Convert a byte offset within a string to a (line, column) pair.
+fn offset_to_line_col(code: &str, offset: usize) -> (u32, u32) {
+  let mut line = 0u32;
+  let mut col = 0u32;
+  for (i, ch) in code.char_indices() {
+    if i >= offset {
+      break;
+    }
+    if ch == '\n' {
+      line += 1;
+      col = 0;
+    } else {
+      col += 1;
+    }
+  }
+  (line, col)
+}
+
 /// Find all references to a symbol within a .mat file.
 fn find_all_refs(matfile: &MatFile, symbol: &str) -> Vec<Reference> {
   let mut refs = Vec::new();
@@ -33,21 +51,24 @@ fn find_all_refs(matfile: &MatFile, symbol: &str) -> Vec<Reference> {
   // 2. Shader code references (Read)
   for shader in &matfile.shaders {
     let code = &shader.code;
+    let shader_body_start_line = shader.range.start.line + 1;
 
     // Search for materialParams.symbol
     let search_dot = format!("materialParams.{}", symbol);
     for (idx, _) in code.match_indices(&search_dot) {
       let start_char = idx as u32 + "materialParams.".len() as u32;
       let end_char = start_char + symbol.len() as u32;
+      let (rel_line, _) = offset_to_line_col(code, idx);
+      let actual_line = shader_body_start_line + rel_line;
 
       refs.push(Reference {
         range: Range {
           start: Position {
-            line: shader.range.start.line + 1, // approximate line within shader
+            line: actual_line,
             character: start_char,
           },
           end: Position {
-            line: shader.range.start.line + 1,
+            line: actual_line,
             character: end_char,
           },
         },
@@ -60,15 +81,17 @@ fn find_all_refs(matfile: &MatFile, symbol: &str) -> Vec<Reference> {
     for (idx, _) in code.match_indices(&search_underscore) {
       let start_char = idx as u32 + "materialParams_".len() as u32;
       let end_char = start_char + symbol.len() as u32;
+      let (rel_line, _) = offset_to_line_col(code, idx);
+      let actual_line = shader_body_start_line + rel_line;
 
       refs.push(Reference {
         range: Range {
           start: Position {
-            line: shader.range.start.line + 1,
+            line: actual_line,
             character: start_char,
           },
           end: Position {
-            line: shader.range.start.line + 1,
+            line: actual_line,
             character: end_char,
           },
         },
@@ -178,7 +201,7 @@ fn is_word_char(c: char) -> bool {
 mod tests {
   use super::*;
   use crate::diagnostics::{TextPosition, TextRange};
-  use crate::parser::{MatFile, Material, Parameter, ShaderBlock, ShaderBlockType};
+  use crate::parser::{Located, MatFile, Material, Parameter, ShaderBlock, ShaderBlockType};
   use std::str::FromStr;
 
   fn dummy_range() -> TextRange {
@@ -201,13 +224,18 @@ mod tests {
         range: dummy_range(),
         name: None,
         shading_model: None,
-        requires: crate::parser::Located::new(vec![], dummy_range()),
+        requires: Located::new(vec![], dummy_range()),
         parameters: vec![Parameter {
           param_type: "float4".to_string(),
           name: "color".to_string(),
           other_fields: vec![],
           range: dummy_range(),
         }],
+        constants: vec![],
+        variables: vec![],
+        buffers: vec![],
+        subpasses: vec![],
+        outputs: vec![],
         other_properties: vec![],
       },
       shaders: vec![ShaderBlock {
