@@ -15,7 +15,7 @@ name = "filament_mat_lsp"
 path = "src/lib.rs"
 
 [dependencies]
-lsp-server = "0.7"
+lsp-server = "0.9"
 lsp-types = "0.97"
 crossbeam-channel = "0.5"
 regex = "1.10"
