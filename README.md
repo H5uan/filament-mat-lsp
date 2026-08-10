@@ -53,7 +53,7 @@ Provides intelligent editing features including completions, hover documentation
 
 ### Custom Commands
 
-- ✅ **Compile Material** (`Filament Material: Compile Material`) — Run `matc` on the current `.mat` file (configurable path)
+- ✅ **Compile Material** (`Filament Material: Compile Material`) — Run `matc` on the current `.mat` file. Output is streamed to an integrated output channel. If `matc` is not installed, the command degrades gracefully with setup guidance instead of launching a broken terminal.
 - ✅ **Show Documentation** (`Filament Material: Show Documentation`) — Open Filament docs for the symbol under cursor
 
 ### Performance
@@ -207,6 +207,28 @@ The extension contributes the following VS Code settings:
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
 | `filamentMat.matcPath` | `string` | `"matc"` | Path to the Filament material compiler (`matc`) |
+| `filamentMat.matcPlatform` | `string` | `"desktop"` | Target platform passed to `matc` (`desktop`, `mobile`, `webgl`) |
+| `filamentMat.matcApi` | `string` | `"vulkan"` | Target graphics API passed to `matc` (`vulkan`, `opengl`, `metal`, `webgpu`) |
+
+## Packaging & Testing
+
+Build a distributable `.vsix` (bundles the compiled Rust binary for the current platform):
+
+```bash
+npm run package
+```
+
+The language server binary is sourced in this order at runtime:
+
+1. **Bundled** inside the `.vsix` (`native/bin/<target-triple>/`)
+2. Local workspace **release build** (`native/target/release/`)
+3. **Downloaded** from GitHub Releases (fallback)
+
+Run the VS Code integration test suite (launches a headless VS Code and asserts LSP diagnostics, completion, and hover against fixture `.mat` files):
+
+```bash
+npm run test:e2e
+```
 
 ## Commands
 

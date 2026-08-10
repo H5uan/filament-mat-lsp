@@ -1,239 +1,38 @@
 use serde::Serialize;
 
+/// Minimal token types — all semantic meaning is carried by the token value string.
+/// The lexer no longer assigns specific types to keywords, property names, or enum values.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum TokenType {
-  // Top-level blocks
-  Material,
-  Vertex,
-  Fragment,
-  Compute,
-  Tool,
-
-  // Material properties
-  Name,
-  ApiLevel,
-  FeatureLevel,
-  ShadingModel,
-  Domain,
-  Interpolation,
-  Quality,
-  Requires,
-  Parameters,
-  Constants,
-  Variables,
-  Buffers,
-  Subpasses,
-  Outputs,
-  Culling,
-  Blending,
-  BlendFunction,
-  PostLightingBlending,
-  Transparency,
-  MaskThreshold,
-  AlphaToCoverage,
-  VertexDomain,
-  VertexDomainDeviceJittered,
-  MaterialDomain,
-  DoubleSided,
-  ColorWrite,
-  DepthWrite,
-  DepthCulling,
-  DepthTest,
-  Instanced,
-  RefractionMode,
-  RefractionType,
-  Reflections,
-  ReflectionMode,
-  ShadowMultiplier,
-  TransparentShadow,
-  ClearCoatIorChange,
-  MultiBounceAmbientOcclusion,
-  SpecularAmbientOcclusion,
-  SpecularAntiAliasing,
-  SpecularAntiAliasingVariance,
-  SpecularAntiAliasingThreshold,
-  CustomSurfaceShading,
-  FlipUv,
-  LinearFog,
-  ShadowFarAttenuation,
-  FramebufferFetch,
-  LegacyMorphing,
-  UseDefaultDepthVariant,
-  VariantFilter,
-  GroupSize,
-  StereoscopicType,
-  StereoscopicEyeCount,
-
-  // Property names (parameter/constant/output fields)
-  Type,
-  Precision,
-  Format,
-  Filterable,
-  Multisample,
-  TransformName,
-  Stages,
-  Default,
-  Qualifiers,
-  Fields,
-  Target,
-  Location,
-
-  // Enums - shading model
-  Lit,
-  Unlit,
-  Subsurface,
-  Cloth,
-  SpecularGlossiness,
-
-  // Enums - culling
-  Front,
-  Back,
-  FrontAndBack,
-  None,
-
-  // Enums - blending
-  Opaque,
-  Transparent,
-  Fade,
-  Masked,
-  Add,
-  Multiply,
-  Screen,
-  Custom,
-
-  // Enums - vertex domain
-  Object,
-  World,
-  View,
-  Device,
-
-  // Enums - material domain
-  Surface,
-  PostProcess,
-
-  // Enums - interpolation
-  Smooth,
-  Flat,
-
-  // Enums - refraction mode
-  ScreenSpace,
-  Cubemap,
-
-  // Enums - refraction type
-  Solid,
-  Thin,
-
-  // Enums - transparency mode
-  // Default already defined above
-  TwoPassesOneSide,
-  TwoPassesTwoSides,
-
-  // Enums - stereoscopic type
-  // Instanced already defined above
-  Multiview,
-
-  // Enums - quality / precision
-  Low,
-  Medium,
-  High,
-
-  // Enums - specular ambient occlusion
-  Simple,
-  BentNormals,
-
-  // Enums - sampler format
-  Shadow,
-
-  // Enums - blend functions
-  Zero,
-  One,
-  SrcColor,
-  OneMinusSrcColor,
-  DstColor,
-  OneMinusDstColor,
-  SrcAlpha,
-  OneMinusSrcAlpha,
-  DstAlpha,
-  OneMinusDstAlpha,
-  SrcAlphaSaturate,
-
-  // Enums - variant filter
-  DirectionalLighting,
-  DynamicLighting,
-  ShadowReceiver,
-  Skinning,
-  Fog,
-  Vsm,
-  Ssr,
-  Stereo,
-
-  // Enums - vertex attributes
-  Position,
-  Normal,
-  Uv0,
-  Uv1,
-  Color,
-  Tangents,
-  Custom0,
-  Custom1,
-  Custom2,
-  Custom3,
-  Custom4,
-  Custom5,
-  Custom6,
-  Custom7,
-  BoneIndices,
-  BoneWeights,
-
-  // Parameter types
-  Bool,
-  Bool2,
-  Bool3,
-  Bool4,
-  Int,
-  Int2,
-  Int3,
-  Int4,
-  Uint,
-  Uint2,
-  Uint3,
-  Uint4,
-  Float,
-  Float2,
-  Float3,
-  Float4,
-  Mat3,
-  Mat4,
-  Float3x3,
-  Float4x4,
-  Sampler2d,
-  Sampler2dArray,
-  Sampler3d,
-  SamplerCubemap,
-  SamplerExternal,
-  SamplerCubemapArray,
-  SubpassInput,
-
-  // Literals
-  True,
-  False,
-  Null,
-  Number,
-  String,
-
-  // Punctuation
-  LCurly,
-  RCurly,
-  LBracket,
-  RBracket,
-  Colon,
-  Comma,
-
-  // Other
+  /// Top-level block keyword: material, vertex, fragment, compute, tool
+  BlockKeyword,
+  /// Generic identifier (property names, enum values, type names, etc.)
   Identifier,
+  /// String literal "like this"
+  StringLiteral,
+  /// Number literal 42 or 3.14
+  NumberLiteral,
+  /// Boolean literal true / false
+  BoolLiteral,
+  /// Null literal
+  NullLiteral,
+  /// {
+  LCurly,
+  /// }
+  RCurly,
+  /// [
+  LBracket,
+  /// ]
+  RBracket,
+  /// :
+  Colon,
+  /// ,
+  Comma,
+  /// Comment (// or /* */)
   Comment,
+  /// Raw GLSL code inside a shader block
   GlslCode,
-  Whitespace,
+  /// Unknown/unrecognized token
   Unknown,
 }
 

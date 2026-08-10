@@ -106,7 +106,6 @@ mod tests {
         range: make_range(0, 0, 5, 1),
         name: None,
         shading_model: None,
-        requires: Located::new(vec![], make_range(0, 0, 0, 0)),
         parameters: vec![Parameter {
           param_type: "float4".to_string(),
           name: "color".to_string(),
@@ -118,7 +117,7 @@ mod tests {
         buffers: vec![],
         subpasses: vec![],
         outputs: vec![],
-        other_properties: vec![],
+        properties: vec![],
       },
       shaders: vec![],
       errors: vec![],

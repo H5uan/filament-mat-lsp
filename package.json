@@ -3,7 +3,8 @@
     "displayName": "Filament Material LSP",
     "description": "Language Server Protocol support for Filament material files",
     "version": "0.3.0",
-    "publisher": "your-publisher-name",
+    "publisher": "H5uan",
+    "icon": "images/icon.png",
     "author": "Ruoxuan Fu",
     "license": "MIT",
     "repository": {
@@ -89,14 +90,27 @@
                     "type": "string",
                     "default": "matc",
                     "description": "Path to the Filament material compiler (matc)"
+                },
+                "filamentMat.matcPlatform": {
+                    "type": "string",
+                    "default": "desktop",
+                    "description": "Target platform passed to matc (desktop, mobile, or webgl)"
+                },
+                "filamentMat.matcApi": {
+                    "type": "string",
+                    "default": "vulkan",
+                    "description": "Target graphics API passed to matc (vulkan, opengl, metal, or webgpu)"
                 }
             }
         }
     },
     "scripts": {
-        "vscode:prepublish": "npm run compile:rust && npm run compile:ts",
+        "vscode:prepublish": "npm run compile:rust && npm run copy:binary && npm run compile:ts",
         "compile:rust": "cd native && cargo build --release",
+        "copy:binary": "node scripts/copy-binary.js",
         "compile:ts": "cd client && tsc -b",
+        "package": "npm run vscode:prepublish && vsce package",
+        "package:no-build": "vsce package",
         "watch": "cd client && tsc -b -w",
         "postinstall": "cd client && npm install",
         "check": "npm run check:rust && npm run check:ts",
@@ -107,13 +121,14 @@
         "fix:ts": "cd client && npx tsc --noEmit",
         "test": "cd native && cargo test --all",
         "test:rust": "cd native && cargo test --all",
-        "test:e2e": "cd client && tsc -b && node out/test/runTest.js"
+        "test:e2e": "cd client && tsc -b && tsc -p tsconfig.test.json && node out/runTest.js"
     },
     "devDependencies": {
         "@types/glob": "^8.1.0",
         "@types/mocha": "^10.0.10",
         "@types/node": "^25",
-        "@vscode/test-electron": "^2.5.2",
+        "@vscode/test-electron": "^3.1.0",
+        "@vscode/vsce": "^3.0.0",
         "mocha": "^11.7.5",
         "typescript": "^6.0.3"
     }

@@ -28,6 +28,7 @@ pub fn to_lsp_completion_item(item: CompletionItem) -> lsp_types::CompletionItem
       InternalCompletionItemKind::Property => CompletionItemKind::PROPERTY,
       InternalCompletionItemKind::EnumValue => CompletionItemKind::ENUM_MEMBER,
       InternalCompletionItemKind::Type => CompletionItemKind::TYPE_PARAMETER,
+      InternalCompletionItemKind::Field => CompletionItemKind::FIELD,
     }),
     documentation: item.documentation.map(lsp_types::Documentation::String),
     insert_text: item.insert_text,

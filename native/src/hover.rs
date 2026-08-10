@@ -71,6 +71,41 @@ impl HoverEngine {
         "MaterialInputs".to_string(),
         "Filament shader input struct. Contains fields like baseColor, roughness, metallic, normal, etc.".to_string(),
       );
+
+      // MaterialInputs fields (set on `material.<field>` inside the fragment shader).
+      let material_input_fields: &[(&str, &str)] = &[
+        ("baseColor", "Linear base color (RGBA). Typical range [0..1] for LDR. Premultiplied alpha is handled by Filament."),
+        ("roughness", "Surface roughness in the range [0..1]. Roughness 0 is mirror-like, 1 is fully rough."),
+        ("metallic", "Metallic factor in the range [0..1]. 0 = dielectric, 1 = metal."),
+        ("normal", "Normal in the shading tangent frame. Usually derived from a normal map."),
+        ("emissive", "Emissive color (RGB) added to the final color regardless of lighting."),
+        ("ambientOcclusion", "Ambient occlusion factor in the range [0..1]. Multiplied into indirect lighting."),
+        ("sheenColor", "Sheen color for cloth-like materials (multi-scatter specular)."),
+        ("sheenRoughness", "Sheen roughness for cloth-like materials."),
+        ("clearcoat", "Clearcoat layer strength in the range [0..1]."),
+        ("clearcoatRoughness", "Roughness of the clearcoat layer in the range [0..1]."),
+        ("clearcoatNormal", "Normal of the clearcoat layer in the shading tangent frame."),
+        ("thickness", "Thickness of the material, used by refraction and transmission."),
+        ("subsurfaceColor", "Subsurface scattering color."),
+        ("subsurfacePower", "Subsurface scattering power (controls the falloff)."),
+        ("specularColor", "Specular color for the F0 term (dielectric-conductor blend)."),
+        ("microfacetAlpha", "Legacy alias for the microfacet distribution width (roughness)."),
+        ("dispersion", "Dispersion factor for refractive materials."),
+        ("anisotropy", "Anisotropy of the specular highlight, in the range [-1..1]."),
+        ("anisotropyDirection", "Direction of anisotropy in the shading tangent frame."),
+        ("perceptualRoughness", "Perceptual (Gamma-corrected) roughness, squared to obtain the microfacet roughness."),
+        ("ior", "Index of refraction of the material, used for dielectric specular and refraction."),
+        ("absorption", "Absorption coefficient used by refraction and transmission."),
+        ("transmission", "Transmission factor in the range [0..1] (transparent/refractive materials)."),
+        ("reflectance", "Reflectance at normal incidence, in the range [0..1] (default 0.5)."),
+        ("userData", "Unused user-defined data slot that can be written from the shader."),
+      ];
+      for (name, field_doc) in material_input_fields {
+        docs.insert(
+          (*name).to_string(),
+          format!("MaterialInputs field. {}", field_doc),
+        );
+      }
       docs.insert(
         "MaterialVertexInputs".to_string(),
         "Filament vertex shader input struct. Contains vertex attributes passed to the fragment shader.".to_string(),

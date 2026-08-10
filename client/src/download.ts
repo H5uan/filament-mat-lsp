@@ -68,6 +68,22 @@ async function downloadWithRetry(url: string, dest: string, retries: number = 3)
     throw lastError || new Error("Download failed after retries");
 }
 
+function getBundledBinaryPath(context: ExtensionContext): string | undefined {
+    const binaryName =
+        os.platform() === "win32" ? "filament-mat-lsp.exe" : "filament-mat-lsp";
+    const bundledBinary = path.join(
+        context.extensionPath,
+        "native",
+        "bin",
+        getTargetTriple(),
+        binaryName
+    );
+    if (fs.existsSync(bundledBinary)) {
+        return bundledBinary;
+    }
+    return undefined;
+}
+
 function getWorkspaceBinaryPath(context: ExtensionContext): string | undefined {
     const binaryName =
         os.platform() === "win32" ? "filament-mat-lsp.exe" : "filament-mat-lsp";
@@ -103,12 +119,20 @@ export async function ensureServerBinary(
     const binaryDir = path.join(context.globalStorageUri.fsPath, "server");
     const binaryPath = path.join(binaryDir, binaryName);
 
-    // For development: always prefer local workspace binary
+    // 1. Bundled binary shipped inside the .vsix (primary path for packaged
+    //    extensions; deterministic, no network required).
+    const bundledBinary = getBundledBinaryPath(context);
+    if (bundledBinary) {
+        return bundledBinary;
+    }
+
+    // 2. Local workspace release build (development machine).
     const workspaceBinary = getWorkspaceBinaryPath(context);
     if (workspaceBinary) {
         return workspaceBinary;
     }
 
+    // 3. Previously downloaded binary cached in global storage.
     if (fs.existsSync(binaryPath)) {
         return binaryPath;
     }

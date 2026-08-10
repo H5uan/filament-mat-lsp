@@ -25,8 +25,8 @@ pub fn build_selection_ranges(matfile: &MatFile, position: Position) -> Vec<Sele
     }
   }
 
-  // Check property values in other_properties
-  for (key, value) in &matfile.material.other_properties {
+  // Check property values in properties
+  for (key, value) in &matfile.material.properties {
     let value_range = to_lsp_range(&value.range);
     if position_in_range(position, value_range) {
       candidates.push((value_range, 1));
@@ -159,14 +159,13 @@ mod tests {
         range: make_range(0, 0, 5, 1),
         name: Some(Located::new("TestMat".to_string(), make_range(1, 4, 1, 20))),
         shading_model: Some(Located::new("lit".to_string(), make_range(2, 4, 2, 24))),
-        requires: Located::new(vec![], make_range(0, 0, 0, 0)),
         parameters: vec![],
         constants: vec![],
         variables: vec![],
         buffers: vec![],
         subpasses: vec![],
         outputs: vec![],
-        other_properties: vec![],
+        properties: vec![],
       },
       shaders: vec![],
       errors: vec![],

@@ -50,8 +50,8 @@ impl Validator {
       ));
     }
 
-    // Validate other properties
-    for (key, value) in &material.other_properties {
+    // Validate all properties
+    for (key, value) in &material.properties {
       diagnostics.extend(self.validate_property(key, value));
     }
 
@@ -68,7 +68,7 @@ impl Validator {
     let mut diags = Vec::new();
     let shading_model = material.shading_model.as_ref().map(|s| s.value.as_str());
     let domain = material
-      .other_properties
+      .properties
       .iter()
       .find(|(k, _)| k == "domain")
       .and_then(|(_, v)| match &v.value {
@@ -76,7 +76,7 @@ impl Validator {
         _ => None,
       });
     let blending = material
-      .other_properties
+      .properties
       .iter()
       .find(|(k, _)| k == "blending")
       .and_then(|(_, v)| match &v.value {
@@ -85,7 +85,7 @@ impl Validator {
       });
 
     if let Some((_, prop)) = material
-      .other_properties
+      .properties
       .iter()
       .find(|(k, _)| k == "shadowMultiplier")
       && shading_model != Some("unlit")
@@ -96,7 +96,7 @@ impl Validator {
       ));
     }
     if let Some((_, prop)) = material
-      .other_properties
+      .properties
       .iter()
       .find(|(k, _)| k == "customSurfaceShading")
       && shading_model != Some("lit")
@@ -106,10 +106,7 @@ impl Validator {
         Some(prop.range.clone()),
       ));
     }
-    if let Some((_, prop)) = material
-      .other_properties
-      .iter()
-      .find(|(k, _)| k == "groupSize")
+    if let Some((_, prop)) = material.properties.iter().find(|(k, _)| k == "groupSize")
       && domain != Some("compute")
     {
       diags.push(Self::warning(
@@ -118,7 +115,7 @@ impl Validator {
       ));
     }
     if let Some((_, prop)) = material
-      .other_properties
+      .properties
       .iter()
       .find(|(k, _)| k == "refractionMode")
       && shading_model != Some("lit")
@@ -129,7 +126,7 @@ impl Validator {
       ));
     }
     if let Some((_, prop)) = material
-      .other_properties
+      .properties
       .iter()
       .find(|(k, _)| k == "refractionType")
       && shading_model != Some("lit")
@@ -140,7 +137,7 @@ impl Validator {
       ));
     }
     if let Some((_, prop)) = material
-      .other_properties
+      .properties
       .iter()
       .find(|(k, _)| k == "stereoscopicType")
       && shading_model != Some("lit")
@@ -151,7 +148,7 @@ impl Validator {
       ));
     }
     if let Some((_, prop)) = material
-      .other_properties
+      .properties
       .iter()
       .find(|(k, _)| k == "alphaToCoverage")
       && blending != Some("masked")
@@ -162,7 +159,7 @@ impl Validator {
       ));
     }
     if let Some((_, prop)) = material
-      .other_properties
+      .properties
       .iter()
       .find(|(k, _)| k == "maskThreshold")
       && blending != Some("masked")
@@ -172,23 +169,19 @@ impl Validator {
         Some(prop.range.clone()),
       ));
     }
-    if let Some((_, prop)) = material
-      .other_properties
-      .iter()
-      .find(|(k, _)| k == "flipUV")
-    {
+    if let Some((_, prop)) = material.properties.iter().find(|(k, _)| k == "flipUV") {
       diags.push(Self::warning(
         "flipUV is deprecated",
         Some(prop.range.clone()),
       ));
     }
     if let Some((_, prop)) = material
-      .other_properties
+      .properties
       .iter()
       .find(|(k, _)| k == "vertexDomainDeviceJittered")
     {
       let vertex_domain = material
-        .other_properties
+        .properties
         .iter()
         .find(|(k, _)| k == "vertexDomain")
         .and_then(|(_, v)| match &v.value {
@@ -203,7 +196,7 @@ impl Validator {
       }
     }
     if let Some((_, prop)) = material
-      .other_properties
+      .properties
       .iter()
       .find(|(k, _)| k == "useDefaultDepthVariant")
       && (shading_model != Some("lit") || blending != Some("opaque"))
@@ -223,7 +216,7 @@ impl Validator {
     // Check if property name is known
     let known_properties: Vec<&str> = get_properties().iter().map(|p| p.name).collect();
     if !known_properties.contains(&key) {
-      // It's already stored in other_properties, which means it's unknown.
+      // It's already stored in properties, which means it's unknown.
       // But we only want to warn, not error, since custom properties might exist.
       diagnostics.push(Self::warning(
         format!("Unknown material property: '{}'", key),
@@ -350,13 +343,12 @@ mod tests {
       name: Some(Located::new("TestMat".to_string(), dummy_range())),
       shading_model: Some(Located::new("lit".to_string(), dummy_range())),
       parameters: vec![],
-      requires: Located::new(vec![], dummy_range()),
       constants: vec![],
       variables: vec![],
       buffers: vec![],
       subpasses: vec![],
       outputs: vec![],
-      other_properties: vec![],
+      properties: vec![],
     };
 
     let validator = Validator::new();
@@ -371,13 +363,12 @@ mod tests {
       name: None,
       shading_model: Some(Located::new("lit".to_string(), dummy_range())),
       parameters: vec![],
-      requires: Located::new(vec![], dummy_range()),
       constants: vec![],
       variables: vec![],
       buffers: vec![],
       subpasses: vec![],
       outputs: vec![],
-      other_properties: vec![],
+      properties: vec![],
     };
 
     let validator = Validator::new();
@@ -408,19 +399,18 @@ mod tests {
       name: Some(Located::new("TestMat".to_string(), dummy_range())),
       shading_model: Some(Located::new("invalidModel".to_string(), dummy_range())),
       parameters: vec![],
-      requires: Located::new(vec![], dummy_range()),
       constants: vec![],
       variables: vec![],
       buffers: vec![],
       subpasses: vec![],
       outputs: vec![],
-      other_properties: vec![],
+      properties: vec![],
     };
 
     let validator = Validator::new();
     let diagnostics = validator.validate_material(&material);
-    // shading_model is stored as Option, not other_properties, so this test
-    // doesn't trigger the property validation. We test other_properties instead.
+    // shading_model is stored as Option, not properties, so this test
+    // doesn't trigger the property validation. We test properties instead.
     assert!(diagnostics.is_empty());
   }
 
@@ -431,13 +421,12 @@ mod tests {
       name: Some(Located::new("TestMat".to_string(), dummy_range())),
       shading_model: Some(Located::new("lit".to_string(), dummy_range())),
       parameters: vec![],
-      requires: Located::new(vec![], dummy_range()),
       constants: vec![],
       variables: vec![],
       buffers: vec![],
       subpasses: vec![],
       outputs: vec![],
-      other_properties: vec![(
+      properties: vec![(
         "unknownProperty".to_string(),
         Located::new(Value::Identifier("value".to_string()), dummy_range()),
       )],
@@ -457,13 +446,12 @@ mod tests {
       name: Some(Located::new("TestMat".to_string(), dummy_range())),
       shading_model: Some(Located::new("lit".to_string(), dummy_range())),
       parameters: vec![],
-      requires: Located::new(vec![], dummy_range()),
       constants: vec![],
       variables: vec![],
       buffers: vec![],
       subpasses: vec![],
       outputs: vec![],
-      other_properties: vec![(
+      properties: vec![(
         "blending".to_string(),
         Located::new(Value::Identifier("invalidBlend".to_string()), dummy_range()),
       )],
@@ -483,13 +471,12 @@ mod tests {
       name: Some(Located::new("TestMat".to_string(), dummy_range())),
       shading_model: Some(Located::new("lit".to_string(), dummy_range())),
       parameters: vec![],
-      requires: Located::new(vec![], dummy_range()),
       constants: vec![],
       variables: vec![],
       buffers: vec![],
       subpasses: vec![],
       outputs: vec![],
-      other_properties: vec![(
+      properties: vec![(
         "shadowMultiplier".to_string(),
         Located::new(Value::Bool(true), dummy_range()),
       )],
@@ -512,13 +499,12 @@ mod tests {
       name: Some(Located::new("TestMat".to_string(), dummy_range())),
       shading_model: Some(Located::new("unlit".to_string(), dummy_range())),
       parameters: vec![],
-      requires: Located::new(vec![], dummy_range()),
       constants: vec![],
       variables: vec![],
       buffers: vec![],
       subpasses: vec![],
       outputs: vec![],
-      other_properties: vec![(
+      properties: vec![(
         "customSurfaceShading".to_string(),
         Located::new(Value::Bool(true), dummy_range()),
       )],
@@ -541,13 +527,12 @@ mod tests {
       name: Some(Located::new("TestMat".to_string(), dummy_range())),
       shading_model: Some(Located::new("lit".to_string(), dummy_range())),
       parameters: vec![],
-      requires: Located::new(vec![], dummy_range()),
       constants: vec![],
       variables: vec![],
       buffers: vec![],
       subpasses: vec![],
       outputs: vec![],
-      other_properties: vec![
+      properties: vec![
         (
           "domain".to_string(),
           Located::new(Value::Identifier("surface".to_string()), dummy_range()),
@@ -583,13 +568,12 @@ mod tests {
       name: Some(Located::new("TestMat".to_string(), dummy_range())),
       shading_model: Some(Located::new("unlit".to_string(), dummy_range())),
       parameters: vec![],
-      requires: Located::new(vec![], dummy_range()),
       constants: vec![],
       variables: vec![],
       buffers: vec![],
       subpasses: vec![],
       outputs: vec![],
-      other_properties: vec![
+      properties: vec![
         (
           "refractionMode".to_string(),
           Located::new(Value::Identifier("screenspace".to_string()), dummy_range()),
@@ -621,13 +605,12 @@ mod tests {
       name: Some(Located::new("TestMat".to_string(), dummy_range())),
       shading_model: Some(Located::new("lit".to_string(), dummy_range())),
       parameters: vec![],
-      requires: Located::new(vec![], dummy_range()),
       constants: vec![],
       variables: vec![],
       buffers: vec![],
       subpasses: vec![],
       outputs: vec![],
-      other_properties: vec![
+      properties: vec![
         (
           "blending".to_string(),
           Located::new(Value::Identifier("transparent".to_string()), dummy_range()),
@@ -656,13 +639,12 @@ mod tests {
       name: Some(Located::new("TestMat".to_string(), dummy_range())),
       shading_model: Some(Located::new("lit".to_string(), dummy_range())),
       parameters: vec![],
-      requires: Located::new(vec![], dummy_range()),
       constants: vec![],
       variables: vec![],
       buffers: vec![],
       subpasses: vec![],
       outputs: vec![],
-      other_properties: vec![
+      properties: vec![
         (
           "blending".to_string(),
           Located::new(Value::Identifier("opaque".to_string()), dummy_range()),
@@ -691,13 +673,12 @@ mod tests {
       name: Some(Located::new("TestMat".to_string(), dummy_range())),
       shading_model: Some(Located::new("lit".to_string(), dummy_range())),
       parameters: vec![],
-      requires: Located::new(vec![], dummy_range()),
       constants: vec![],
       variables: vec![],
       buffers: vec![],
       subpasses: vec![],
       outputs: vec![],
-      other_properties: vec![(
+      properties: vec![(
         "flipUV".to_string(),
         Located::new(Value::Bool(true), dummy_range()),
       )],
@@ -721,13 +702,12 @@ mod tests {
       name: Some(Located::new("TestMat".to_string(), dummy_range())),
       shading_model: Some(Located::new("lit".to_string(), dummy_range())),
       parameters: vec![],
-      requires: Located::new(vec![], dummy_range()),
       constants: vec![],
       variables: vec![],
       buffers: vec![],
       subpasses: vec![],
       outputs: vec![],
-      other_properties: vec![
+      properties: vec![
         (
           "vertexDomain".to_string(),
           Located::new(Value::Identifier("object".to_string()), dummy_range()),
@@ -756,13 +736,12 @@ mod tests {
       name: Some(Located::new("TestMat".to_string(), dummy_range())),
       shading_model: Some(Located::new("unlit".to_string(), dummy_range())),
       parameters: vec![],
-      requires: Located::new(vec![], dummy_range()),
       constants: vec![],
       variables: vec![],
       buffers: vec![],
       subpasses: vec![],
       outputs: vec![],
-      other_properties: vec![
+      properties: vec![
         (
           "blending".to_string(),
           Located::new(Value::Identifier("opaque".to_string()), dummy_range()),
@@ -791,13 +770,12 @@ mod tests {
       name: Some(Located::new("TestMat".to_string(), dummy_range())),
       shading_model: Some(Located::new("unlit".to_string(), dummy_range())),
       parameters: vec![],
-      requires: Located::new(vec![], dummy_range()),
       constants: vec![],
       variables: vec![],
       buffers: vec![],
       subpasses: vec![],
       outputs: vec![],
-      other_properties: vec![
+      properties: vec![
         (
           "shadowMultiplier".to_string(),
           Located::new(Value::Bool(true), dummy_range()),

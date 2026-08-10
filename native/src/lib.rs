@@ -10,6 +10,7 @@ pub mod parser;
 pub mod references;
 pub mod schema;
 pub mod selection_range;
+pub mod shader_symbols;
 pub mod signature_help;
 pub mod token;
 

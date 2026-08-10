@@ -1,0 +1,10 @@
+material {
+    name : Broken,
+    unknownProperty : nope,
+    parameters : [
+        {
+            type : float4,
+            name :
+        }
+    ]
+}

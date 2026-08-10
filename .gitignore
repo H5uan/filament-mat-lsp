@@ -10,6 +10,7 @@ client/node_modules/
 out/
 dist/
 *.vsix
+*.tsbuildinfo
 
 # VS Code
 .vscode-test/

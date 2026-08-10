@@ -233,8 +233,12 @@ fn handle_completion(server: &ServerState, params: CompletionParams) -> Completi
   let uri = &params.text_document_position.text_document.uri;
   let position = params.text_document_position.position;
 
+  // TODO: detect shading model from parsed material for smart field filtering.
+  // Currently requires &mut ServerState which isn't available in handle_completion.
+  let shading_model: Option<String> = None;
+
   let context = if let Some(doc) = server.get_document(uri) {
-    detect_completion_context(doc, position)
+    detect_completion_context(doc, position, shading_model)
   } else {
     InternalCompletionContext::MaterialBlock
   };
@@ -282,9 +286,36 @@ fn extract_completion_prefix(doc: &super::server::Document, position: Position) 
 fn detect_completion_context(
   doc: &super::server::Document,
   position: Position,
+  shading_model: Option<String>,
 ) -> InternalCompletionContext {
   let offset = doc.position_to_offset(position);
   let text = &doc.text[..offset];
+
+  // Detect "material." prefix for material field completion
+  // Look for "material." in the text before the cursor
+  if let Some(dot_idx) = text.rfind("material.") {
+    // Check that this is the start of a word or follows a non-alphanumeric char
+    let is_word_start = dot_idx == 0
+      || !text[..dot_idx]
+        .chars()
+        .last()
+        .map(|c| c.is_alphanumeric() || c == '_')
+        .unwrap_or(false);
+    if is_word_start {
+      // Determine if we're in a vertex shader scope
+      // Look backwards for the nearest shader block keyword
+      let vertex_scope = text[..dot_idx]
+        .lines()
+        .last()
+        .map(|line| line.trim().starts_with("vertex"))
+        .unwrap_or(false);
+
+      return InternalCompletionContext::MaterialField {
+        shading_model,
+        vertex_scope,
+      };
+    }
+  }
 
   // Look backwards for the last property name before a colon
   if let Some(colon_idx) = text.rfind(':') {
@@ -310,12 +341,34 @@ fn detect_completion_context(
   InternalCompletionContext::MaterialBlock
 }
 
-fn handle_hover(server: &ServerState, params: HoverParams) -> Option<Hover> {
+fn handle_hover(server: &mut ServerState, params: HoverParams) -> Option<Hover> {
   let uri = &params.text_document_position_params.text_document.uri;
   let position = params.text_document_position_params.position;
 
   let doc = server.get_document(uri)?;
   let word = extract_word_at_position(doc, position)?;
+
+  // User-defined material parameters take precedence: hovering on a parameter
+  // (declaration or a `materialParams.X` / `materialParams_X` usage) shows its
+  // declared type.
+  if let Some(Ok(material)) = server.parse_document(uri)
+    && let Some(param) = material
+      .parameters
+      .iter()
+      .find(|p| p.name == word || param_name_from_word(&word) == Some(p.name.as_str()))
+  {
+    let value = format!(
+      "**Parameter `{}`**\n\nType: `{}`\n\nDeclared in the `material` block and accessed from the shader as `materialParams.{}`.",
+      param.name, param.param_type, param.name
+    );
+    return Some(Hover {
+      contents: HoverContents::Markup(MarkupContent {
+        kind: MarkupKind::Markdown,
+        value,
+      }),
+      range: None,
+    });
+  }
 
   let engine = HoverEngine::new();
   engine.get_hover(&word).map(|doc| Hover {
@@ -359,8 +412,58 @@ fn extract_word_at_position(doc: &super::server::Document, position: Position) -
   }
 }
 
+/// Extract the word at `position` together with its byte range in the document.
+fn extract_word_range_at_position(
+  doc: &super::server::Document,
+  position: Position,
+) -> Option<(String, Range)> {
+  let offset = doc.position_to_offset(position);
+  let text = &doc.text;
+
+  let mut start = offset;
+  let mut end = offset;
+
+  while start > 0 {
+    let prev = text[..start].chars().last()?;
+    if !is_word_char(prev) {
+      break;
+    }
+    start -= prev.len_utf8();
+  }
+
+  while end < text.len() {
+    let next = text[end..].chars().next()?;
+    if !is_word_char(next) {
+      break;
+    }
+    end += next.len_utf8();
+  }
+
+  if start < end {
+    Some((
+      text[start..end].to_string(),
+      Range {
+        start: offset_to_line_col(text, start, 0),
+        end: offset_to_line_col(text, end, 0),
+      },
+    ))
+  } else {
+    None
+  }
+}
+
 fn is_word_char(c: char) -> bool {
   c.is_alphanumeric() || c == '_'
+}
+
+/// When a shader references a parameter via the underscore form
+/// (`materialParams_<name>`), the whole token is extracted as a single word
+/// because `_` is a word character. Strip the prefix so the name can be matched
+/// against declared parameters.
+fn param_name_from_word(word: &str) -> Option<&str> {
+  word
+    .strip_prefix("materialParams_")
+    .filter(|r| !r.is_empty())
 }
 
 fn handle_definition(
@@ -786,11 +889,9 @@ fn handle_document_symbol(
   params: DocumentSymbolParams,
 ) -> Option<DocumentSymbolResponse> {
   let uri = &params.text_document.uri;
-  let material = match server.parse_document(uri)? {
-    Ok(m) => m,
-    Err(_) => return None,
-  };
+  let matfile = server.parse_full_document(uri)?;
 
+  let material = &matfile.material;
   let mut symbols = Vec::new();
 
   // Material root symbol
@@ -828,6 +929,66 @@ fn handle_document_symbol(
       children: None,
     };
     symbols.push(param_symbol);
+  }
+
+  // Add shader block symbols (functions, uniforms, varyings)
+  use filament_mat_lsp::shader_symbols::ShaderSymbolKind;
+  for shader in &matfile.shaders {
+    let shader_label = format!("{:?} shader", shader.block_type);
+    let shader_range = conv::to_lsp_range(&shader.range);
+    let mut shader_children = Vec::new();
+
+    for sym in &shader.symbols {
+      let (kind, detail) = match sym.kind {
+        ShaderSymbolKind::Function => (SymbolKind::FUNCTION, None),
+        ShaderSymbolKind::Uniform => (SymbolKind::VARIABLE, Some("uniform".to_string())),
+        ShaderSymbolKind::Varying => (SymbolKind::VARIABLE, Some("varying".to_string())),
+        ShaderSymbolKind::MaterialParamRef => continue, // Skip references in outline
+        ShaderSymbolKind::MaterialFieldRef => continue,
+      };
+
+      // Convert byte offset within shader code to line/col in document
+      let code_before = &shader.code[..sym.byte_start];
+      let newlines = code_before.matches('\n').count() as u32;
+      let last_newline = code_before.rfind('\n').map(|i| i + 1).unwrap_or(0);
+      let sym_line = shader.range.start.line + 1 + newlines;
+      let sym_col = (sym.byte_start - last_newline) as u32;
+
+      let sym_range = Range {
+        start: Position {
+          line: sym_line,
+          character: sym_col,
+        },
+        end: Position {
+          line: sym_line,
+          character: sym_col + (sym.byte_end - sym.byte_start) as u32,
+        },
+      };
+
+      shader_children.push(DocumentSymbol {
+        name: sym.name.clone(),
+        detail,
+        kind,
+        tags: None,
+        deprecated: None,
+        range: sym_range,
+        selection_range: sym_range,
+        children: None,
+      });
+    }
+
+    if !shader_children.is_empty() {
+      symbols.push(DocumentSymbol {
+        name: shader_label,
+        detail: None,
+        kind: SymbolKind::NAMESPACE,
+        tags: None,
+        deprecated: None,
+        range: shader_range,
+        selection_range: shader_range,
+        children: Some(shader_children),
+      });
+    }
   }
 
   Some(DocumentSymbolResponse::Nested(symbols))
@@ -938,6 +1099,7 @@ fn handle_workspace_symbol(
 
   // Collect from all open documents
   for uri in uris {
+    // Material symbols
     if let Some(Ok(material)) = server.parse_document(&uri) {
       let name = material
         .name
@@ -946,14 +1108,77 @@ fn handle_workspace_symbol(
         .unwrap_or_else(|| "Material".to_string());
       let range = conv::to_lsp_range(&material.range);
 
+      let material_name = name.clone();
       symbols.push(SymbolInformation {
         name,
         kind: SymbolKind::OBJECT,
-        location: Location { uri, range },
+        location: Location {
+          uri: uri.clone(),
+          range,
+        },
         container_name: None,
         deprecated: None,
         tags: None,
       });
+
+      // Parameter symbols
+      for param in &material.parameters {
+        symbols.push(SymbolInformation {
+          name: param.name.clone(),
+          kind: SymbolKind::PROPERTY,
+          location: Location {
+            uri: uri.clone(),
+            range: conv::to_lsp_range(&param.range),
+          },
+          container_name: Some(material_name.clone()),
+          deprecated: None,
+          tags: None,
+        });
+      }
+    }
+
+    // Shader function/uniform symbols from full parse
+    if let Some(matfile) = server.parse_full_document(&uri) {
+      for shader in &matfile.shaders {
+        use filament_mat_lsp::shader_symbols::ShaderSymbolKind;
+        let container = format!("{:?} shader", shader.block_type);
+
+        for sym in &shader.symbols {
+          let (kind, label) = match sym.kind {
+            ShaderSymbolKind::Function => (SymbolKind::FUNCTION, sym.name.clone()),
+            ShaderSymbolKind::Uniform => (SymbolKind::VARIABLE, format!("uniform {}", sym.name)),
+            ShaderSymbolKind::Varying => (SymbolKind::VARIABLE, format!("varying {}", sym.name)),
+            ShaderSymbolKind::MaterialParamRef | ShaderSymbolKind::MaterialFieldRef => continue,
+          };
+
+          let code_before = &shader.code[..sym.byte_start];
+          let newlines = code_before.matches('\n').count() as u32;
+          let last_newline = code_before.rfind('\n').map(|i| i + 1).unwrap_or(0);
+          let sym_line = shader.range.start.line + 1 + newlines;
+          let sym_col = (sym.byte_start - last_newline) as u32;
+
+          symbols.push(SymbolInformation {
+            name: label,
+            kind,
+            location: Location {
+              uri: uri.clone(),
+              range: Range {
+                start: Position {
+                  line: sym_line,
+                  character: sym_col,
+                },
+                end: Position {
+                  line: sym_line,
+                  character: sym_col + (sym.byte_end - sym.byte_start) as u32,
+                },
+              },
+            },
+            container_name: Some(container.clone()),
+            deprecated: None,
+            tags: None,
+          });
+        }
+      }
     }
   }
 
@@ -976,12 +1201,25 @@ fn handle_prepare_rename(
     Err(_) => return None,
   };
 
-  // Check if position is on a parameter name
+  // Check if position is on a parameter name (declaration).
   for param in &material.parameters {
     let range = conv::to_lsp_range(&param.range);
     if position_in_range(position, range) {
       return Some(PrepareRenameResponse::Range(range));
     }
+  }
+
+  // Fall back to a parameter referenced from the shader body (materialParams.X
+  // or materialParams_X). Extract the word; if it matches a parameter name it is
+  // a valid rename target, and we highlight the word itself.
+  let doc = server.get_document(uri)?;
+  let (word, word_range) = extract_word_range_at_position(doc, position)?;
+  if material
+    .parameters
+    .iter()
+    .any(|p| p.name == word || param_name_from_word(&word) == Some(p.name.as_str()))
+  {
+    return Some(PrepareRenameResponse::Range(word_range));
   }
 
   None
@@ -1006,67 +1244,97 @@ fn handle_rename(server: &mut ServerState, params: RenameParams) -> Option<Works
   let mut changes: std::collections::HashMap<Uri, Vec<TextEdit>> = std::collections::HashMap::new();
   let mut edits = Vec::new();
 
-  // Find which parameter is being renamed
-  let mut target_param: Option<&filament_mat_lsp::parser::Parameter> = None;
+  // Find which parameter is being renamed. This works both when the cursor is on
+  // the parameter declaration and when it is on a shader usage (materialParams.X
+  // or materialParams_X), since both resolve to a parameter name.
+  let mut target_name: Option<String> = None;
   for param in &material.parameters {
     let range = conv::to_lsp_range(&param.range);
     if position_in_range(position, range) {
-      target_param = Some(param);
+      target_name = Some(param.name.clone());
       break;
     }
   }
 
-  let target_param = target_param?;
-  let old_name = &target_param.name;
+  if target_name.is_none()
+    && let Some(doc) = server.get_document(uri)
+    && let Some((word, _)) = extract_word_range_at_position(doc, position)
+    && let Some(name) = material
+      .parameters
+      .iter()
+      .find(|p| p.name == word || param_name_from_word(&word) == Some(p.name.as_str()))
+      .map(|p| p.name.clone())
+  {
+    target_name = Some(name);
+  }
+
+  let old_name = &target_name?;
 
   // Edit 1: parameter definition name field
-  // We need to find the exact position of the name value inside the parameter object
-  // Since we don't have sub-ranges, we'll search in the parameter range text
+  // Search the whole document for "name : <old_name>" / "name:<old_name>".
+  // Searching the full text (rather than a single parameter's range) lets the
+  // rename work both when triggered on the declaration and on a shader usage.
   if let Some(doc) = server.get_document(uri) {
-    let param_range = &target_param.range;
-    let param_text = &doc.text[param_range.start.line as usize..param_range.end.line as usize + 1];
-
-    // Simple text search for name value
+    let text = doc.text.as_str();
     let search_pattern = format!("name : {}", old_name);
-    if let Some(idx) = param_text.find(&search_pattern) {
-      let start_char = idx as u32 + 7; // skip "name : "
-      let end_char = start_char + old_name.len() as u32;
+    let search_pattern2 = format!("name:{}", old_name);
+    let mut offset = 0usize;
+    while let Some(idx) = text[offset..].find(&search_pattern) {
+      let abs_idx = offset + idx;
+      let name_start = abs_idx + search_pattern.len() - old_name.len();
+      let start = offset_to_line_col(text, name_start, 0);
       edits.push(TextEdit {
         range: Range {
-          start: Position {
-            line: param_range.start.line,
-            character: start_char,
-          },
+          start,
           end: Position {
-            line: param_range.start.line,
-            character: end_char,
+            line: start.line,
+            character: start.character + old_name.len() as u32,
           },
         },
         new_text: new_name.clone(),
       });
+      offset = abs_idx + search_pattern.len();
+    }
+    offset = 0;
+    while let Some(idx) = text[offset..].find(&search_pattern2) {
+      let abs_idx = offset + idx;
+      let name_start = abs_idx + search_pattern2.len() - old_name.len();
+      let start = offset_to_line_col(text, name_start, 0);
+      edits.push(TextEdit {
+        range: Range {
+          start,
+          end: Position {
+            line: start.line,
+            character: start.character + old_name.len() as u32,
+          },
+        },
+        new_text: new_name.clone(),
+      });
+      offset = abs_idx + search_pattern2.len();
     }
   }
 
   // Edit 2: shader references materialParams_xxx and materialParams.xxx
+  // The shader code starts at the line after the opening brace.
   for shader in &matfile.shaders {
     let search_old = format!("materialParams_{}", old_name);
     let search_dot = format!("materialParams.{}", old_name);
     let replace_old = format!("materialParams_{}", new_name);
     let replace_dot = format!("materialParams.{}", new_name);
 
+    let base_line = shader.range.start.line + 1;
+
     // Find all occurrences in shader code
     let mut offset = 0usize;
     while let Some(idx) = shader.code[offset..].find(&search_old) {
       let abs_idx = offset + idx;
+      let pos = offset_to_line_col(&shader.code, abs_idx, base_line);
       edits.push(TextEdit {
         range: Range {
-          start: Position {
-            line: shader.range.start.line + 1, // approximate
-            character: abs_idx as u32,
-          },
+          start: pos,
           end: Position {
-            line: shader.range.start.line + 1,
-            character: (abs_idx + search_old.len()) as u32,
+            line: pos.line,
+            character: pos.character + search_old.len() as u32,
           },
         },
         new_text: replace_old.clone(),
@@ -1077,15 +1345,13 @@ fn handle_rename(server: &mut ServerState, params: RenameParams) -> Option<Works
     offset = 0;
     while let Some(idx) = shader.code[offset..].find(&search_dot) {
       let abs_idx = offset + idx;
+      let pos = offset_to_line_col(&shader.code, abs_idx, base_line);
       edits.push(TextEdit {
         range: Range {
-          start: Position {
-            line: shader.range.start.line + 1,
-            character: abs_idx as u32,
-          },
+          start: pos,
           end: Position {
-            line: shader.range.start.line + 1,
-            character: (abs_idx + search_dot.len()) as u32,
+            line: pos.line,
+            character: pos.character + search_dot.len() as u32,
           },
         },
         new_text: replace_dot.clone(),
@@ -1104,6 +1370,18 @@ fn handle_rename(server: &mut ServerState, params: RenameParams) -> Option<Works
     document_changes: None,
     change_annotations: None,
   })
+}
+
+/// Convert a byte offset within a multi-line string to a Position (line, column),
+/// relative to the given base line.
+fn offset_to_line_col(code: &str, offset: usize, base_line: u32) -> Position {
+  let before = &code[..offset];
+  let newlines = before.matches('\n').count() as u32;
+  let last_newline = before.rfind('\n').map(|i| i + 1).unwrap_or(0);
+  Position {
+    line: base_line + newlines,
+    character: (offset - last_newline) as u32,
+  }
 }
 
 fn handle_document_highlight(
@@ -1379,70 +1657,49 @@ fn handle_document_link(
   let mut links = Vec::new();
   let text = &doc.text;
 
-  // Find material property lines and create links for known enum values
+  // Map of property names → documentation URL fragments
+  let doc_links: [(&str, &str); 4] = [
+    ("shadingModel", "shadingmodel"),
+    ("blending", "blending"),
+    ("culling", "culling"),
+    ("transparency", "transparency"),
+  ];
+
   for (line_idx, line) in text.lines().enumerate() {
     let trimmed = line.trim();
 
-    // shadingModel: lit → link to shading model docs
-    if trimmed.contains("shadingModel")
-      && let Some(colon_idx) = trimmed.find(':')
-    {
-      let value_part = &trimmed[colon_idx + 1..].trim();
-      if let Some(value) = value_part.split([',', '}']).next() {
-        let value = value.trim();
-        if !value.is_empty() {
-          let value_start = line.find(value).unwrap_or(0) as u32;
-          links.push(DocumentLink {
-            range: Range {
-              start: Position {
-                line: line_idx as u32,
-                character: value_start,
+    for (prop_name, doc_fragment) in &doc_links {
+      if trimmed.contains(prop_name)
+        && let Some(colon_idx) = trimmed.find(':')
+      {
+        let value_part = &trimmed[colon_idx + 1..].trim();
+        if let Some(value) = value_part.split([',', '}']).next() {
+          let value = value.trim();
+          if !value.is_empty() {
+            let value_start = line.find(value).unwrap_or(0) as u32;
+            links.push(DocumentLink {
+              range: Range {
+                start: Position {
+                  line: line_idx as u32,
+                  character: value_start,
+                },
+                end: Position {
+                  line: line_idx as u32,
+                  character: value_start + value.len() as u32,
+                },
               },
-              end: Position {
-                line: line_idx as u32,
-                character: value_start + value.len() as u32,
-              },
-            },
-            target: Some(
-              "https://google.github.io/filament/Materials.html#shadingmodel"
+              target: Some(
+                format!(
+                  "https://google.github.io/filament/Materials.html#{}",
+                  doc_fragment
+                )
                 .parse::<Uri>()
                 .unwrap(),
-            ),
-            tooltip: Some("Open Filament shading model documentation".to_string()),
-            data: None,
-          });
-        }
-      }
-    }
-
-    // blendMode: opaque → link to blend mode docs
-    if trimmed.contains("blendMode")
-      && let Some(colon_idx) = trimmed.find(':')
-    {
-      let value_part = &trimmed[colon_idx + 1..].trim();
-      if let Some(value) = value_part.split([',', '}']).next() {
-        let value = value.trim();
-        if !value.is_empty() {
-          let value_start = line.find(value).unwrap_or(0) as u32;
-          links.push(DocumentLink {
-            range: Range {
-              start: Position {
-                line: line_idx as u32,
-                character: value_start,
-              },
-              end: Position {
-                line: line_idx as u32,
-                character: value_start + value.len() as u32,
-              },
-            },
-            target: Some(
-              "https://google.github.io/filament/Materials.html#blendmode"
-                .parse::<Uri>()
-                .unwrap(),
-            ),
-            tooltip: Some("Open Filament blend mode documentation".to_string()),
-            data: None,
-          });
+              ),
+              tooltip: Some(format!("Open Filament {} documentation", prop_name)),
+              data: None,
+            });
+          }
         }
       }
     }
@@ -1509,13 +1766,16 @@ fn handle_code_lens(server: &mut ServerState, params: CodeLensParams) -> Option<
 mod tests {
   use super::*;
   use crate::lsp::server::ServerState;
-
   fn create_test_server(text: &str) -> ServerState {
     let (sender, _) = crossbeam_channel::unbounded();
     let mut server = ServerState::new(sender);
     let uri: Uri = "file:///test.mat".parse().unwrap();
     server.insert_document(uri, crate::lsp::server::Document::new(text.to_string(), 1));
     server
+  }
+
+  fn test_uri() -> Uri {
+    "file:///test.mat".parse().unwrap()
   }
 
   #[test]
@@ -1589,7 +1849,7 @@ mod tests {
 
   #[test]
   fn test_document_link_blend_mode() {
-    let text = "material {\n    blendMode : opaque,\n}";
+    let text = "material {\n    blending : opaque,\n}";
     let server = create_test_server(text);
     let uri: Uri = "file:///test.mat".parse().unwrap();
 
@@ -1604,5 +1864,284 @@ mod tests {
     let links = links.unwrap();
     assert_eq!(links.len(), 1);
     assert!(links[0].target.is_some());
+  }
+
+  // ---------------------------------------------------------------------------
+  // Integration tests — full handler pipeline
+  // ---------------------------------------------------------------------------
+
+  #[test]
+  fn test_integration_completion_material_block() {
+    let text = "material {\n    \n}";
+    let server = create_test_server(text);
+    let uri = test_uri();
+
+    let params = CompletionParams {
+      text_document_position: TextDocumentPositionParams {
+        text_document: TextDocumentIdentifier { uri },
+        position: Position {
+          line: 1,
+          character: 4,
+        },
+      },
+      work_done_progress_params: WorkDoneProgressParams::default(),
+      partial_result_params: PartialResultParams::default(),
+      context: None,
+    };
+
+    let result = handle_completion(&server, params);
+    assert!(result.items.len() > 10, "Expected many completion items");
+    // Should include common material properties
+    let labels: Vec<&str> = result.items.iter().map(|i| i.label.as_str()).collect();
+    assert!(
+      labels.contains(&"shadingModel"),
+      "shadingModel should be in completion"
+    );
+    assert!(
+      labels.contains(&"blending"),
+      "blending should be in completion"
+    );
+    assert!(labels.contains(&"name"), "name should be in completion");
+    assert!(
+      labels.contains(&"parameters"),
+      "parameters should be in completion"
+    );
+  }
+
+  #[test]
+  fn test_integration_hover_known_keyword() {
+    let text = "material {\n    shadingModel : lit\n}";
+    let server = create_test_server(text);
+    let uri = test_uri();
+
+    let params = HoverParams {
+      text_document_position_params: TextDocumentPositionParams {
+        text_document: TextDocumentIdentifier { uri },
+        position: Position {
+          line: 1,
+          character: 6,
+        }, // on "shadingModel"
+      },
+      work_done_progress_params: WorkDoneProgressParams::default(),
+    };
+
+    let mut server = server;
+    let result = handle_hover(&mut server, params);
+    assert!(
+      result.is_some(),
+      "Hover should return content for 'shadingModel'"
+    );
+    let hover = result.unwrap();
+    match hover.contents {
+      HoverContents::Markup(content) => {
+        assert!(
+          content.value.to_lowercase().contains("shading"),
+          "Hover should mention shading, got: {}",
+          content.value
+        );
+      }
+      _ => panic!("Expected Markup content"),
+    }
+  }
+
+  #[test]
+  fn test_integration_diagnostics_missing_name() {
+    let text = "material {\n    shadingModel : lit\n}";
+    let mut server = create_test_server(text);
+    let uri = test_uri();
+
+    let params = DocumentDiagnosticParams {
+      text_document: TextDocumentIdentifier { uri },
+      identifier: None,
+      previous_result_id: None,
+      work_done_progress_params: WorkDoneProgressParams::default(),
+      partial_result_params: PartialResultParams::default(),
+    };
+
+    let result = handle_diagnostic(&mut server, params);
+    match result {
+      DocumentDiagnosticReportResult::Report(DocumentDiagnosticReport::Full(report)) => {
+        let has_missing_name = report
+          .full_document_diagnostic_report
+          .items
+          .iter()
+          .any(|d| d.message.contains("name"));
+        assert!(has_missing_name, "Should report missing 'name' property");
+      }
+      _ => panic!("Expected Full report"),
+    }
+  }
+
+  #[test]
+  fn test_integration_diagnostics_valid_material() {
+    let text = "material {\n    name : Test,\n    shadingModel : lit\n}";
+    let mut server = create_test_server(text);
+    let uri = test_uri();
+
+    let params = DocumentDiagnosticParams {
+      text_document: TextDocumentIdentifier { uri },
+      identifier: None,
+      previous_result_id: None,
+      work_done_progress_params: WorkDoneProgressParams::default(),
+      partial_result_params: PartialResultParams::default(),
+    };
+
+    let result = handle_diagnostic(&mut server, params);
+    match result {
+      DocumentDiagnosticReportResult::Report(DocumentDiagnosticReport::Full(report)) => {
+        let errors: Vec<_> = report
+          .full_document_diagnostic_report
+          .items
+          .iter()
+          .filter(|d| d.severity == Some(lsp_types::DiagnosticSeverity::ERROR))
+          .collect();
+        assert!(
+          errors.is_empty(),
+          "Valid material should have no errors: {:?}",
+          errors
+        );
+      }
+      _ => panic!("Expected Full report"),
+    }
+  }
+
+  #[test]
+  fn test_integration_definition_parameter() {
+    let text = "material {\n    name : Test,\n    shadingModel : lit,\n    parameters : [\n        { type : float, name : roughness }\n    ]\n}";
+    let mut server = create_test_server(text);
+    let uri = test_uri();
+
+    // Definition uses `extract_word_at_position` on the raw text, then
+    // matches against parameter names. Position must be on the parameter name.
+    let params = GotoDefinitionParams {
+      text_document_position_params: TextDocumentPositionParams {
+        text_document: TextDocumentIdentifier { uri: uri.clone() },
+        position: Position {
+          line: 4,
+          character: 35,
+        }, // 0-based: middle of "roughness"
+      },
+      work_done_progress_params: WorkDoneProgressParams::default(),
+      partial_result_params: PartialResultParams::default(),
+    };
+
+    let result = handle_definition(&mut server, params);
+    assert!(
+      result.is_some(),
+      "Definition should find parameter 'roughness'"
+    );
+  }
+
+  #[test]
+  fn test_integration_rename_parameter() {
+    let text = "material {\n    name : Test,\n    shadingModel : lit,\n    parameters : [\n        { type : float, name : roughness }\n    ]\n}\nfragment {\n    materialParams.roughness;\n}";
+    let mut server = create_test_server(text);
+    let uri = test_uri();
+
+    let params = RenameParams {
+      text_document_position: TextDocumentPositionParams {
+        text_document: TextDocumentIdentifier { uri: uri.clone() },
+        position: Position {
+          line: 5,
+          character: 35,
+        },
+      },
+      new_name: "roughness2".to_string(),
+      work_done_progress_params: WorkDoneProgressParams::default(),
+    };
+
+    let result = handle_rename(&mut server, params);
+    assert!(result.is_some(), "Rename should produce edits");
+    let edit = result.unwrap();
+    let changes = edit.changes.expect("Should have changes");
+    let edits = changes
+      .get(&uri)
+      .expect("Should have edits for the document");
+    assert!(!edits.is_empty(), "Should have at least one edit");
+  }
+
+  #[test]
+  fn test_integration_references_parameter() {
+    let text = "material {\n    name : Test,\n    shadingModel : lit,\n    parameters : [\n        { type : float, name : roughness }\n    ]\n}\nfragment {\n    materialParams.roughness;\n}";
+    let mut server = create_test_server(text);
+    let uri = test_uri();
+
+    // References uses `extract_word_at_position` (0-based) then
+    // `parse_full_document` for the full MatFile.
+    let params = ReferenceParams {
+      text_document_position: TextDocumentPositionParams {
+        text_document: TextDocumentIdentifier { uri: uri.clone() },
+        position: Position {
+          line: 4,
+          character: 35,
+        }, // 0-based: middle of "roughness"
+      },
+      work_done_progress_params: WorkDoneProgressParams::default(),
+      partial_result_params: PartialResultParams::default(),
+      context: ReferenceContext {
+        include_declaration: true,
+      },
+    };
+
+    let result = handle_references(&mut server, params);
+    assert!(result.is_some(), "References should find locations");
+    let locations = result.unwrap();
+    assert!(
+      locations.len() >= 1,
+      "Should find at least one reference, got {:?}",
+      locations
+    );
+  }
+
+  #[test]
+  fn test_integration_document_symbol() {
+    let text = "material {\n    name : TestMat,\n    shadingModel : lit,\n    parameters : [\n        { type : float, name : roughness }\n    ]\n}";
+    let mut server = create_test_server(text);
+    let uri = test_uri();
+
+    let params = DocumentSymbolParams {
+      text_document: TextDocumentIdentifier { uri },
+      work_done_progress_params: WorkDoneProgressParams::default(),
+      partial_result_params: PartialResultParams::default(),
+    };
+
+    let result = handle_document_symbol(&mut server, params);
+    assert!(result.is_some(), "Document symbols should be returned");
+    match result.unwrap() {
+      DocumentSymbolResponse::Nested(symbols) => {
+        assert!(symbols.len() >= 1, "Should have at least material symbol");
+        assert!(
+          symbols[0].name.contains("TestMat"),
+          "Symbol name should contain material name"
+        );
+      }
+      _ => panic!("Expected Nested document symbols"),
+    }
+  }
+
+  #[test]
+  fn test_integration_formatting() {
+    let text = "material {\nname : Test,\nshadingModel : lit\n}";
+    let server = create_test_server(text);
+    let uri = test_uri();
+
+    let params = DocumentFormattingParams {
+      text_document: TextDocumentIdentifier { uri },
+      options: FormattingOptions::default(),
+      work_done_progress_params: WorkDoneProgressParams::default(),
+    };
+
+    let result = handle_formatting(&server, params);
+    assert!(result.is_some(), "Formatting should produce edits");
+    let edits = result.unwrap();
+    assert!(
+      !edits.is_empty(),
+      "Should have at least one formatting edit"
+    );
+    // The formatted text should have indentation
+    assert!(
+      edits[0].new_text.contains("    name"),
+      "Formatted text should have indented properties"
+    );
   }
 }

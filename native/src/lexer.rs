@@ -1,4 +1,3 @@
-use crate::schema::{KeywordType, lookup_keyword};
 use crate::token::{Token, TokenType};
 use std::iter::Peekable;
 use std::str::Chars;
@@ -96,19 +95,11 @@ impl<'a> Lexer<'a> {
           if ch.is_ascii_alphabetic() || ch == '_' {
             let (line, col) = self.state.current_pos();
             let ident = self.read_identifier_raw();
-            let tt = match lookup_keyword(&ident) {
-              Some(KeywordType::TopLevelBlock) => {
-                self.pending_block_name = Some(ident.clone());
-                match ident.as_str() {
-                  "material" => TokenType::Material,
-                  "vertex" => TokenType::Vertex,
-                  "fragment" => TokenType::Fragment,
-                  "compute" => TokenType::Compute,
-                  "tool" => TokenType::Tool,
-                  _ => TokenType::Identifier,
-                }
-              }
-              _ => TokenType::Identifier,
+            let tt = if is_toplevel_block_keyword(&ident) {
+              self.pending_block_name = Some(ident.clone());
+              TokenType::BlockKeyword
+            } else {
+              TokenType::Identifier
             };
             tokens.push(Token::new(tt, &ident, line, col));
             continue;
@@ -234,7 +225,12 @@ impl<'a> Lexer<'a> {
       '0'..='9' | '-' => Some(self.read_number()),
       'a'..='z' | 'A'..='Z' | '_' => {
         let ident = self.read_identifier_raw();
-        let tt = Self::map_identifier_to_token_type(&ident);
+        let tt = match ident.as_str() {
+          "true" | "TRUE" => TokenType::BoolLiteral,
+          "false" | "FALSE" => TokenType::BoolLiteral,
+          "null" | "NULL" => TokenType::NullLiteral,
+          _ => TokenType::Identifier,
+        };
         Some(Token::new(tt, &ident, line, col))
       }
       _ => {
@@ -354,7 +350,7 @@ impl<'a> Lexer<'a> {
         self.state.advance();
       }
     }
-    Token::new(TokenType::String, &s, line, col)
+    Token::new(TokenType::StringLiteral, &s, line, col)
   }
 
   fn read_number(&mut self) -> Token {
@@ -368,7 +364,7 @@ impl<'a> Lexer<'a> {
         break;
       }
     }
-    Token::new(TokenType::Number, &num, line, col)
+    Token::new(TokenType::NumberLiteral, &num, line, col)
   }
 
   fn read_identifier_raw(&mut self) -> String {
@@ -383,263 +379,14 @@ impl<'a> Lexer<'a> {
     }
     ident
   }
+}
 
-  fn map_identifier_to_token_type(ident: &str) -> TokenType {
-    match lookup_keyword(ident) {
-      Some(KeywordType::MaterialProperty) => match ident {
-        "name" => TokenType::Name,
-        "apiLevel" => TokenType::ApiLevel,
-        "featureLevel" => TokenType::FeatureLevel,
-        "shadingModel" => TokenType::ShadingModel,
-        "domain" => TokenType::Domain,
-        "interpolation" => TokenType::Interpolation,
-        "quality" => TokenType::Quality,
-        "requires" => TokenType::Requires,
-        "parameters" => TokenType::Parameters,
-        "constants" => TokenType::Constants,
-        "variables" => TokenType::Variables,
-        "buffers" => TokenType::Buffers,
-        "subpasses" => TokenType::Subpasses,
-        "outputs" => TokenType::Outputs,
-        "culling" => TokenType::Culling,
-        "blending" => TokenType::Blending,
-        "blendFunction" => TokenType::BlendFunction,
-        "postLightingBlending" => TokenType::PostLightingBlending,
-        "transparency" => TokenType::Transparency,
-        "maskThreshold" => TokenType::MaskThreshold,
-        "alphaToCoverage" => TokenType::AlphaToCoverage,
-        "vertexDomain" => TokenType::VertexDomain,
-        "vertexDomainDeviceJittered" => TokenType::VertexDomainDeviceJittered,
-        "materialDomain" => TokenType::MaterialDomain,
-        "doubleSided" => TokenType::DoubleSided,
-        "colorWrite" => TokenType::ColorWrite,
-        "depthWrite" => TokenType::DepthWrite,
-        "depthCulling" => TokenType::DepthCulling,
-        "depthTest" => TokenType::DepthTest,
-        "instanced" => TokenType::Instanced,
-        "refractionMode" => TokenType::RefractionMode,
-        "refractionType" => TokenType::RefractionType,
-        "reflections" => TokenType::Reflections,
-        "reflectionMode" => TokenType::ReflectionMode,
-        "shadowMultiplier" => TokenType::ShadowMultiplier,
-        "transparentShadow" => TokenType::TransparentShadow,
-        "clearCoatIorChange" => TokenType::ClearCoatIorChange,
-        "multiBounceAmbientOcclusion" => TokenType::MultiBounceAmbientOcclusion,
-        "specularAmbientOcclusion" => TokenType::SpecularAmbientOcclusion,
-        "specularAntiAliasing" => TokenType::SpecularAntiAliasing,
-        "specularAntiAliasingVariance" => TokenType::SpecularAntiAliasingVariance,
-        "specularAntiAliasingThreshold" => TokenType::SpecularAntiAliasingThreshold,
-        "customSurfaceShading" => TokenType::CustomSurfaceShading,
-        "flipUV" => TokenType::FlipUv,
-        "linearFog" => TokenType::LinearFog,
-        "shadowFarAttenuation" => TokenType::ShadowFarAttenuation,
-        "framebufferFetch" => TokenType::FramebufferFetch,
-        "legacyMorphing" => TokenType::LegacyMorphing,
-        "useDefaultDepthVariant" => TokenType::UseDefaultDepthVariant,
-        "variantFilter" => TokenType::VariantFilter,
-        "groupSize" => TokenType::GroupSize,
-        "stereoscopicType" => TokenType::StereoscopicType,
-        "stereoscopicEyeCount" => TokenType::StereoscopicEyeCount,
-        _ => TokenType::Identifier,
-      },
-      Some(KeywordType::ParameterField) => match ident {
-        "type" => TokenType::Type,
-        "name" => TokenType::Name,
-        "precision" => TokenType::Precision,
-        "format" => TokenType::Format,
-        "filterable" => TokenType::Filterable,
-        "multisample" => TokenType::Multisample,
-        "transformName" => TokenType::TransformName,
-        "stages" => TokenType::Stages,
-        "default" => TokenType::Default,
-        "qualifiers" => TokenType::Qualifiers,
-        "fields" => TokenType::Fields,
-        "target" => TokenType::Target,
-        "location" => TokenType::Location,
-        _ => TokenType::Identifier,
-      },
-      Some(KeywordType::ShadingModel) => match ident {
-        "lit" => TokenType::Lit,
-        "unlit" => TokenType::Unlit,
-        "subsurface" => TokenType::Subsurface,
-        "cloth" => TokenType::Cloth,
-        "specularGlossiness" => TokenType::SpecularGlossiness,
-        _ => TokenType::Identifier,
-      },
-      Some(KeywordType::BlendingMode) => match ident {
-        "opaque" => TokenType::Opaque,
-        "transparent" => TokenType::Transparent,
-        "fade" => TokenType::Fade,
-        "masked" => TokenType::Masked,
-        "add" => TokenType::Add,
-        "multiply" => TokenType::Multiply,
-        "screen" => TokenType::Screen,
-        "custom" => TokenType::Custom,
-        _ => TokenType::Identifier,
-      },
-      Some(KeywordType::CullingMode) => match ident {
-        "front" => TokenType::Front,
-        "back" => TokenType::Back,
-        "frontAndBack" => TokenType::FrontAndBack,
-        "none" => TokenType::None,
-        _ => TokenType::Identifier,
-      },
-      Some(KeywordType::VertexDomain) => match ident {
-        "object" => TokenType::Object,
-        "world" => TokenType::World,
-        "view" => TokenType::View,
-        "device" => TokenType::Device,
-        _ => TokenType::Identifier,
-      },
-      Some(KeywordType::MaterialDomain) => match ident {
-        "surface" => TokenType::Surface,
-        "postprocess" => TokenType::PostProcess,
-        "compute" => TokenType::Compute,
-        _ => TokenType::Identifier,
-      },
-      Some(KeywordType::InterpolationMode) => match ident {
-        "smooth" => TokenType::Smooth,
-        "flat" => TokenType::Flat,
-        _ => TokenType::Identifier,
-      },
-      Some(KeywordType::RefractionMode) => match ident {
-        "none" => TokenType::None,
-        "cubemap" => TokenType::Cubemap,
-        "screenspace" => TokenType::ScreenSpace,
-        _ => TokenType::Identifier,
-      },
-      Some(KeywordType::RefractionType) => match ident {
-        "solid" => TokenType::Solid,
-        "thin" => TokenType::Thin,
-        _ => TokenType::Identifier,
-      },
-      Some(KeywordType::ReflectionMode) => match ident {
-        "default" => TokenType::Default,
-        "screenspace" => TokenType::ScreenSpace,
-        _ => TokenType::Identifier,
-      },
-      Some(KeywordType::TransparencyMode) => match ident {
-        "default" => TokenType::Default,
-        "twoPassesOneSide" => TokenType::TwoPassesOneSide,
-        "twoPassesTwoSides" => TokenType::TwoPassesTwoSides,
-        _ => TokenType::Identifier,
-      },
-      Some(KeywordType::StereoscopicType) => match ident {
-        "none" => TokenType::None,
-        "instanced" => TokenType::Instanced,
-        "multiview" => TokenType::Multiview,
-        _ => TokenType::Identifier,
-      },
-      Some(KeywordType::QualityLevel) => match ident {
-        "default" => TokenType::Default,
-        "low" => TokenType::Low,
-        "normal" => TokenType::Normal,
-        "high" => TokenType::High,
-        _ => TokenType::Identifier,
-      },
-      Some(KeywordType::SpecularAmbientOcclusionMode) => match ident {
-        "none" => TokenType::None,
-        "simple" => TokenType::Simple,
-        "bentNormals" => TokenType::BentNormals,
-        _ => TokenType::Identifier,
-      },
-      Some(KeywordType::PrecisionValue) => match ident {
-        "default" => TokenType::Default,
-        "low" => TokenType::Low,
-        "medium" => TokenType::Medium,
-        "high" => TokenType::High,
-        _ => TokenType::Identifier,
-      },
-      Some(KeywordType::SamplerFormat) => match ident {
-        "float" => TokenType::Float,
-        "int" => TokenType::Int,
-        "uint" => TokenType::Uint,
-        "shadow" => TokenType::Shadow,
-        _ => TokenType::Identifier,
-      },
-      Some(KeywordType::BlendFunction) => match ident {
-        "zero" => TokenType::Zero,
-        "one" => TokenType::One,
-        "srcColor" => TokenType::SrcColor,
-        "oneMinusSrcColor" => TokenType::OneMinusSrcColor,
-        "dstColor" => TokenType::DstColor,
-        "oneMinusDstColor" => TokenType::OneMinusDstColor,
-        "srcAlpha" => TokenType::SrcAlpha,
-        "oneMinusSrcAlpha" => TokenType::OneMinusSrcAlpha,
-        "dstAlpha" => TokenType::DstAlpha,
-        "oneMinusDstAlpha" => TokenType::OneMinusDstAlpha,
-        "srcAlphaSaturate" => TokenType::SrcAlphaSaturate,
-        _ => TokenType::Identifier,
-      },
-      Some(KeywordType::VertexAttribute) => match ident {
-        "position" => TokenType::Position,
-        "normal" => TokenType::Normal,
-        "uv0" => TokenType::Uv0,
-        "uv1" => TokenType::Uv1,
-        "color" => TokenType::Color,
-        "tangents" => TokenType::Tangents,
-        "custom0" => TokenType::Custom0,
-        "custom1" => TokenType::Custom1,
-        "custom2" => TokenType::Custom2,
-        "custom3" => TokenType::Custom3,
-        "custom4" => TokenType::Custom4,
-        "custom5" => TokenType::Custom5,
-        "custom6" => TokenType::Custom6,
-        "custom7" => TokenType::Custom7,
-        "boneIndices" => TokenType::BoneIndices,
-        "boneWeights" => TokenType::BoneWeights,
-        _ => TokenType::Identifier,
-      },
-      Some(KeywordType::VariantFilterValue) => match ident {
-        "directionalLighting" => TokenType::DirectionalLighting,
-        "dynamicLighting" => TokenType::DynamicLighting,
-        "shadowReceiver" => TokenType::ShadowReceiver,
-        "skinning" => TokenType::Skinning,
-        "fog" => TokenType::Fog,
-        "vsm" => TokenType::Vsm,
-        "ssr" => TokenType::Ssr,
-        "stereo" => TokenType::Stereo,
-        _ => TokenType::Identifier,
-      },
-      Some(KeywordType::ParameterType) => match ident {
-        "bool" => TokenType::Bool,
-        "bool2" => TokenType::Bool2,
-        "bool3" => TokenType::Bool3,
-        "bool4" => TokenType::Bool4,
-        "int" => TokenType::Int,
-        "int2" => TokenType::Int2,
-        "int3" => TokenType::Int3,
-        "int4" => TokenType::Int4,
-        "uint" => TokenType::Uint,
-        "uint2" => TokenType::Uint2,
-        "uint3" => TokenType::Uint3,
-        "uint4" => TokenType::Uint4,
-        "float" => TokenType::Float,
-        "float2" => TokenType::Float2,
-        "float3" => TokenType::Float3,
-        "float4" => TokenType::Float4,
-        "mat3" => TokenType::Mat3,
-        "mat4" => TokenType::Mat4,
-        "float3x3" => TokenType::Float3x3,
-        "float4x4" => TokenType::Float4x4,
-        "sampler2d" => TokenType::Sampler2d,
-        "sampler2dArray" => TokenType::Sampler2dArray,
-        "sampler3d" => TokenType::Sampler3d,
-        "samplerCubemap" => TokenType::SamplerCubemap,
-        "samplerExternal" => TokenType::SamplerExternal,
-        "samplerCubemapArray" => TokenType::SamplerCubemapArray,
-        "subpassInput" => TokenType::SubpassInput,
-        _ => TokenType::Identifier,
-      },
-      Some(KeywordType::BoolLiteral) => match ident {
-        "true" => TokenType::True,
-        "false" => TokenType::False,
-        _ => TokenType::Identifier,
-      },
-      Some(KeywordType::NullLiteral) => TokenType::Null,
-      _ => TokenType::Identifier,
-    }
-  }
+/// Check if an identifier is a top-level block keyword.
+fn is_toplevel_block_keyword(ident: &str) -> bool {
+  matches!(
+    ident,
+    "material" | "vertex" | "fragment" | "compute" | "tool"
+  )
 }
 
 #[cfg(test)]
@@ -653,16 +400,20 @@ mod tests {
     let mut lexer = Lexer::new(input);
     let tokens = lexer.tokenize();
     assert_eq!(tokens.len(), 12);
-    assert!(tokens[0].is_type(&TokenType::Material));
+    assert!(tokens[0].is_type(&TokenType::BlockKeyword));
+    assert_eq!(tokens[0].value, "material");
     assert!(tokens[1].is_type(&TokenType::LCurly));
     assert!(tokens[2].is_type(&TokenType::RCurly));
-    assert!(tokens[3].is_type(&TokenType::Vertex));
+    assert!(tokens[3].is_type(&TokenType::BlockKeyword));
+    assert_eq!(tokens[3].value, "vertex");
     assert!(tokens[4].is_type(&TokenType::LCurly));
     assert!(tokens[5].is_type(&TokenType::RCurly));
-    assert!(tokens[6].is_type(&TokenType::Fragment));
+    assert!(tokens[6].is_type(&TokenType::BlockKeyword));
+    assert_eq!(tokens[6].value, "fragment");
     assert!(tokens[7].is_type(&TokenType::LCurly));
     assert!(tokens[8].is_type(&TokenType::RCurly));
-    assert!(tokens[9].is_type(&TokenType::Compute));
+    assert!(tokens[9].is_type(&TokenType::BlockKeyword));
+    assert_eq!(tokens[9].value, "compute");
     assert!(tokens[10].is_type(&TokenType::LCurly));
     assert!(tokens[11].is_type(&TokenType::RCurly));
   }
@@ -672,12 +423,20 @@ mod tests {
     let input = "material { name : Test, shadingModel : lit, blending : opaque }";
     let mut lexer = Lexer::new(input);
     let tokens = lexer.tokenize();
-    let types: Vec<_> = tokens.iter().map(|t| &t.token_type).collect();
-    assert!(types.contains(&&TokenType::Name));
-    assert!(types.contains(&&TokenType::ShadingModel));
-    assert!(types.contains(&&TokenType::Lit));
-    assert!(types.contains(&&TokenType::Blending));
-    assert!(types.contains(&&TokenType::Opaque));
+    // tokens[0] = BlockKeyword "material", tokens[1] = LCurly "{"
+    // Then: name : Test, shadingModel : lit, blending : opaque
+    assert_eq!(tokens[2].value, "name");
+    assert!(tokens[2].is_type(&TokenType::Identifier));
+    assert_eq!(tokens[4].value, "Test");
+    assert!(tokens[4].is_type(&TokenType::Identifier));
+    assert_eq!(tokens[6].value, "shadingModel");
+    assert!(tokens[6].is_type(&TokenType::Identifier));
+    assert_eq!(tokens[8].value, "lit");
+    assert!(tokens[8].is_type(&TokenType::Identifier));
+    assert_eq!(tokens[10].value, "blending");
+    assert!(tokens[10].is_type(&TokenType::Identifier));
+    assert_eq!(tokens[12].value, "opaque");
+    assert!(tokens[12].is_type(&TokenType::Identifier));
   }
 
   #[test]
@@ -689,8 +448,9 @@ mod tests {
     }"#;
     let mut lexer = Lexer::new(input);
     let tokens = lexer.tokenize();
-    // Should have Fragment, LCurly, GlslCode, RCurly
-    assert!(tokens[0].is_type(&TokenType::Fragment));
+    // Should have BlockKeyword, LCurly, GlslCode, RCurly
+    assert!(tokens[0].is_type(&TokenType::BlockKeyword));
+    assert_eq!(tokens[0].value, "fragment");
     assert!(tokens[1].is_type(&TokenType::LCurly));
     // Find GlslCode token
     let has_glsl = tokens.iter().any(|t| t.is_type(&TokenType::GlslCode));

@@ -7,12 +7,15 @@
     },
     "scripts": {
         "compile": "tsc -b",
+        "compile:test": "tsc -p tsconfig.test.json",
         "watch": "tsc -b -w"
     },
     "dependencies": {
         "vscode-languageclient": "^9.0.0"
     },
     "devDependencies": {
+        "@types/mocha": "^10.0.10",
+        "@types/node": "^25",
         "@types/vscode": "^1.75.0",
         "typescript": "^6.0.3"
     }

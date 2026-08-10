@@ -224,7 +224,6 @@ mod tests {
         range: dummy_range(),
         name: None,
         shading_model: None,
-        requires: Located::new(vec![], dummy_range()),
         parameters: vec![Parameter {
           param_type: "float4".to_string(),
           name: "color".to_string(),
@@ -236,7 +235,7 @@ mod tests {
         buffers: vec![],
         subpasses: vec![],
         outputs: vec![],
-        other_properties: vec![],
+        properties: vec![],
       },
       shaders: vec![ShaderBlock {
         block_type: ShaderBlockType::Fragment,
@@ -251,6 +250,7 @@ mod tests {
             character: 1,
           },
         },
+        symbols: vec![],
       }],
       errors: vec![],
     };
