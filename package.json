@@ -124,7 +124,7 @@
         "test:e2e": "cd client && tsc -b && tsc -p tsconfig.test.json && node out/runTest.js"
     },
     "devDependencies": {
-        "@types/glob": "^8.1.0",
+        "@types/glob": "^9.0.0",
         "@types/mocha": "^10.0.10",
         "@types/node": "^25",
         "@vscode/test-electron": "^3.1.0",
